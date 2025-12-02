@@ -19,6 +19,22 @@
   </label>
   <button id="startBtn">Start</button>
 
+  <select id="matchesSelect"></select>
+
+<div id="players"></div>
+
+<form id="namesForm">
+  <h3>Set player names</h3>
+  <div>Team 1</div>
+  <input id="t1p1" placeholder="Team 1 - Player 1">
+  <input id="t1p2" placeholder="Team 1 - Player 2">
+  <div>Team 2</div>
+  <input id="t2p1" placeholder="Team 2 - Player 1">
+  <input id="t2p2" placeholder="Team 2 - Player 2">
+  <button type="submit">Save names</button>
+</form>
+
+  
   <div id="status"></div>
   <div class="score" id="score"></div>
   <div id="updatedAt"></div>
@@ -26,64 +42,138 @@
   <pre id="stats"></pre>
 
   <script>
-    const matchIdInput = document.getElementById('matchIdInput');
-    const startBtn = document.getElementById('startBtn');
-    const statusEl = document.getElementById('status');
-    const scoreEl = document.getElementById('score');
-    const updatedAtEl = document.getElementById('updatedAt');
-    const statsEl = document.getElementById('stats');
+  const matchIdInput = document.getElementById('matchIdInput');
+  const startBtn = document.getElementById('startBtn');
+  const statusEl = document.getElementById('status');
+  const scoreEl = document.getElementById('score');
+  const updatedAtEl = document.getElementById('updatedAt');
+  const statsEl = document.getElementById('stats');
 
-    // Allow ?matchId=court1 in URL
-    const params = new URLSearchParams(window.location.search);
-    const initialMatchId = params.get('matchId') || 'default';
-    matchIdInput.value = initialMatchId;
+  // New elements you add in the body:
+  // <div id="players"></div>
+  // <form id="namesForm"> ... </form>
+  // <select id="matchesSelect"></select>
 
-    let timer = null;
+  const playersEl = document.getElementById('players');
+  const namesForm = document.getElementById('namesForm');
+  const matchesSelect = document.getElementById('matchesSelect');
 
-    function startPolling(matchId) {
-      if (timer) clearInterval(timer);
+  const params = new URLSearchParams(window.location.search);
+  let currentMatchId = params.get('matchId') || 'default';
+  matchIdInput.value = currentMatchId;
 
-      async function fetchMatch() {
-        try {
-          const res = await fetch(`/api/match/${encodeURIComponent(matchId)}`);
-          if (!res.ok) {
-            statusEl.textContent = `Error: ${res.status}`;
-            statusEl.className = 'error';
-            scoreEl.textContent = '';
-            updatedAtEl.textContent = '';
-            statsEl.textContent = '';
-            return;
-          }
-          const data = await res.json();
-          statusEl.textContent = `Showing match: ${matchId}`;
-          statusEl.className = '';
-          scoreEl.textContent = data.score;
-          updatedAtEl.textContent = `Updated: ${new Date(data.updatedAt).toLocaleTimeString()}`;
-          statsEl.textContent = JSON.stringify(data.stats || {}, null, 2);
-        } catch (err) {
-          statusEl.textContent = `Fetch error: ${err.message}`;
-          statusEl.className = 'error';
-        }
+  let timer = null;
+
+  async function fetchMatch(matchId) {
+    try {
+      const res = await fetch(`/api/match/${encodeURIComponent(matchId)}`);
+      if (!res.ok) {
+        statusEl.textContent = `Error: ${res.status}`;
+        statusEl.className = 'error';
+        scoreEl.textContent = '';
+        updatedAtEl.textContent = '';
+        statsEl.textContent = '';
+        playersEl.textContent = '';
+        return;
       }
+      const data = await res.json();
+      statusEl.textContent = `Showing match: ${matchId}`;
+      statusEl.className = '';
+      scoreEl.textContent = data.score;
+      updatedAtEl.textContent = `Updated: ${new Date(data.updatedAt).toLocaleTimeString()}`;
+      statsEl.textContent = JSON.stringify(data.stats || {}, null, 2);
 
-      fetchMatch();
-      timer = setInterval(fetchMatch, 3000); // poll every 3s
+      const players = data.players || [];
+      playersEl.innerHTML = players.map(p => `${p.team === 1 ? 'Team 1' : 'Team 2'}: ${p.name}`).join('<br>');
+
+      // prefill form if present
+      const t1p1Input = document.getElementById('t1p1');
+      const t1p2Input = document.getElementById('t1p2');
+      const t2p1Input = document.getElementById('t2p1');
+      const t2p2Input = document.getElementById('t2p2');
+      if (players.length === 4 && t1p1Input) {
+        t1p1Input.value = players[0].name;
+        t1p2Input.value = players[1].name;
+        t2p1Input.value = players[2].name;
+        t2p2Input.value = players[3].name;
+      }
+    } catch (err) {
+      statusEl.textContent = `Fetch error: ${err.message}`;
+      statusEl.className = 'error';
     }
+  }
 
-    startBtn.addEventListener('click', () => {
-      const matchId = matchIdInput.value.trim();
-      if (matchId) {
-        startPolling(matchId);
-        const url = new URL(window.location.href);
-        url.searchParams.set('matchId', matchId);
-        history.replaceState(null, '', url.toString());
+  async function fetchMatchesList() {
+    try {
+      const res = await fetch('/api/matches');
+      if (!res.ok) return;
+      const list = await res.json();
+      matchesSelect.innerHTML = '';
+      for (const m of list) {
+        const opt = document.createElement('option');
+        opt.value = m.matchId;
+        opt.textContent = `${m.matchId} (${m.score || 'no score yet'})`;
+        matchesSelect.appendChild(opt);
       }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function startPolling(matchId) {
+    currentMatchId = matchId;
+    if (timer) clearInterval(timer);
+    fetchMatch(matchId);
+    timer = setInterval(() => fetchMatch(matchId), 3000);
+  }
+
+  startBtn.addEventListener('click', () => {
+    const matchId = matchIdInput.value.trim();
+    if (matchId) {
+      startPolling(matchId);
+      const url = new URL(window.location.href);
+      url.searchParams.set('matchId', matchId);
+      history.replaceState(null, '', url.toString());
+    }
+  });
+
+  matchesSelect.addEventListener('change', () => {
+    const matchId = matchesSelect.value;
+    if (matchId) {
+      matchIdInput.value = matchId;
+      startPolling(matchId);
+    }
+  });
+
+  namesForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!currentMatchId) return;
+    const body = {
+      team1: {
+        p1: document.getElementById('t1p1').value,
+        p2: document.getElementById('t1p2').value,
+      },
+      team2: {
+        p1: document.getElementById('t2p1').value,
+        p2: document.getElementById('t2p2').value,
+      }
+    };
+    await fetch(`/api/match/${encodeURIComponent(currentMatchId)}/players`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     });
+    fetchMatch(currentMatchId);
+  });
 
-    // Auto-start on load
-    if (initialMatchId) {
-      startPolling(initialMatchId);
-    }
-  </script>
+  // Initial
+  if (currentMatchId) {
+    startPolling(currentMatchId);
+  }
+  fetchMatchesList();
+  setInterval(fetchMatchesList, 10000); // refresh match list every 10s
+</script>
+
 </body>
 </html>
+
