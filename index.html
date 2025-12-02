@@ -12,7 +12,7 @@
       --team-text: #111217;
       --set-bg: #111217;
       --set-text: #ffffff;
-      --point-top-bg: #f7c948;   /* yellow-ish */
+      --point-top-bg: #f7c948;
       --point-bottom-bg: #cfcfcf;
       --point-text: #111217;
       --divider: #d9d9d9;
@@ -43,63 +43,61 @@
       text-transform: uppercase;
     }
 
-    .top-bar {
-      width: 100%;
-      max-width: 520px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-
-    .top-bar label {
-      font-size: 12px;
-      text-transform: uppercase;
-      opacity: 0.8;
-    }
-
-    .top-bar input,
-    .top-bar select,
-    .top-bar button {
-      font: inherit;
-      padding: 6px 8px;
-      border-radius: 4px;
-      border: 1px solid #44495a;
-      background: #1e2130;
-      color: #f5f5f5;
-    }
-
-    .top-bar button {
-      cursor: pointer;
-      border-color: #f7c948;
-    }
-
-    .top-bar button:hover {
-      background: #2b3042;
-    }
-
-    .top-bar-group {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
     .status {
       font-size: 12px;
       min-height: 16px;
     }
-
     .status.error {
       color: #ff6b6b;
     }
 
-    /* SCOREBOARD CARD */
+    /* LIST VIEW */
+
+    #listView {
+      width: 100%;
+      max-width: 520px;
+    }
+
+    #matchesListEmpty {
+      font-size: 13px;
+      opacity: 0.8;
+      margin-top: 8px;
+    }
+
+    .match-card {
+      background: #181a25;
+      border-radius: 6px;
+      border: 1px solid #26293a;
+      padding: 10px;
+      margin-top: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .match-card a {
+      color: #f5f5f5;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .match-card small {
+      font-size: 11px;
+      opacity: 0.8;
+    }
+
+    /* SCOREBOARD VIEW */
+
+    #matchView {
+      width: 100%;
+      max-width: 520px;
+    }
 
     .scoreboard-wrapper {
       width: 100%;
       max-width: 480px;
-      margin-top: 8px;
+      margin: 8px auto 0;
       display: flex;
       justify-content: center;
     }
@@ -231,11 +229,10 @@
       border-top: 1px solid var(--card-border);
     }
 
-    /* NAMES FORM / DEBUG */
+    /* NAMES / DEBUG PANEL */
 
     .panel {
       width: 100%;
-      max-width: 520px;
       margin-top: 16px;
       background: #181a25;
       border-radius: 6px;
@@ -312,97 +309,91 @@
 <body>
   <h1>Padel Live</h1>
 
-  <div class="top-bar">
-    <div class="top-bar-group">
-      <label for="matchesSelect">Running matches</label>
-      <select id="matchesSelect">
-        <option value="">None</option>
-      </select>
-    </div>
-
-    <div class="top-bar-group">
-      <label for="matchIdInput">Match ID</label>
-      <input id="matchIdInput" placeholder="court1">
-    </div>
-
-    <div class="top-bar-group">
-      <label>&nbsp;</label>
-      <button id="startBtn" type="button">Show match</button>
-    </div>
+  <!-- LIST VIEW (home) -->
+  <div id="listView">
+    <p style="font-size:13px;opacity:.85;">Select a match to view its live scoreboard.</p>
+    <div id="matchesList"></div>
+    <div id="matchesListEmpty" style="display:none;">No matches yet. Start scoring from the watch.</div>
   </div>
 
-  <div id="status" class="status"></div>
+  <!-- MATCH VIEW (/?matchId=...) -->
+  <div id="matchView" style="display:none;">
+    <div id="status" class="status"></div>
 
-  <!-- SCOREBOARD -->
-  <div class="scoreboard-wrapper">
-    <div class="scoreboard">
-      <div class="sb-icon">
-        <div class="sb-icon-symbol"></div>
-      </div>
+    <div class="scoreboard-wrapper">
+      <div class="scoreboard">
+        <div class="sb-icon">
+          <div class="sb-icon-symbol"></div>
+        </div>
 
-      <div class="sb-teams">
-        <div class="sb-row">
-          <div class="team-name" id="team1Name">TEAM 1</div>
-          <div class="team-meta">
-            <span class="server-dot" id="team1ServerDot" style="display:none;"></span>
-            <span class="set-score-badge" id="team1Sets">-</span>
+        <div class="sb-teams">
+          <div class="sb-row">
+            <div class="team-name" id="team1Name">TEAM 1</div>
+            <div class="team-meta">
+              <span class="server-dot" id="team1ServerDot" style="display:none;"></span>
+              <span class="set-score-badge" id="team1Sets">-</span>
+            </div>
+          </div>
+          <div class="sb-row">
+            <div class="team-name" id="team2Name">TEAM 2</div>
+            <div class="team-meta">
+              <span class="server-dot" id="team2ServerDot" style="display:none;"></span>
+              <span class="set-score-badge" id="team2Sets">-</span>
+            </div>
           </div>
         </div>
-        <div class="sb-row">
-          <div class="team-name" id="team2Name">TEAM 2</div>
-          <div class="team-meta">
-            <span class="server-dot" id="team2ServerDot" style="display:none;"></span>
-            <span class="set-score-badge" id="team2Sets">-</span>
-          </div>
-        </div>
-      </div>
 
-      <div class="sb-points">
-        <div class="sb-point-top" id="team1Points">0</div>
-        <div class="sb-point-bottom" id="team2Points">0</div>
+        <div class="sb-points">
+          <div class="sb-point-top" id="team1Points">0</div>
+          <div class="sb-point-bottom" id="team2Points">0</div>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- NAMES + DEBUG PANEL -->
-  <div class="panel">
-    <h3>Player Names for Current Match</h3>
-    <form id="namesForm">
-      <div class="names-grid">
-        <div>
-          <label for="t1p1">Team 1 - Player 1</label>
-          <input id="t1p1" autocomplete="off">
+    <div class="panel">
+      <h3>Player Names</h3>
+      <form id="namesForm">
+        <div class="names-grid">
+          <div>
+            <label for="t1p1">Team 1 - Player 1</label>
+            <input id="t1p1" autocomplete="off">
+          </div>
+          <div>
+            <label for="t1p2">Team 1 - Player 2</label>
+            <input id="t1p2" autocomplete="off">
+          </div>
+          <div>
+            <label for="t2p1">Team 2 - Player 1</label>
+            <input id="t2p1" autocomplete="off">
+          </div>
+          <div>
+            <label for="t2p2">Team 2 - Player 2</label>
+            <input id="t2p2" autocomplete="off">
+          </div>
         </div>
-        <div>
-          <label for="t1p2">Team 1 - Player 2</label>
-          <input id="t1p2" autocomplete="off">
-        </div>
-        <div>
-          <label for="t2p1">Team 2 - Player 1</label>
-          <input id="t2p1" autocomplete="off">
-        </div>
-        <div>
-          <label for="t2p2">Team 2 - Player 2</label>
-          <input id="t2p2" autocomplete="off">
-        </div>
+        <button type="submit">Save Names</button>
+      </form>
+
+      <div class="debug">
+        <strong>Match:</strong> <span id="matchLabel"></span><br>
+        <strong>Raw score:</strong> <span id="rawScore"></span><br>
+        <strong>Last update:</strong> <span id="updatedAt"></span><br>
+        <strong>Stats JSON:</strong>
+        <pre id="stats"></pre>
       </div>
-      <button type="submit">Save Names</button>
-    </form>
-
-    <div class="debug">
-      <strong>Raw score:</strong> <span id="rawScore"></span><br>
-      <strong>Last update:</strong> <span id="updatedAt"></span><br>
-      <strong>Stats JSON:</strong>
-      <pre id="stats"></pre>
     </div>
   </div>
 
   <script>
-    const matchIdInput = document.getElementById('matchIdInput');
-    const startBtn = document.getElementById('startBtn');
-    const statusEl = document.getElementById('status');
-    const matchesSelect = document.getElementById('matchesSelect');
+    const params = new URLSearchParams(window.location.search);
+    let currentMatchId = params.get('matchId') || null;
 
+    const listView = document.getElementById('listView');
+    const matchView = document.getElementById('matchView');
+    const matchesList = document.getElementById('matchesList');
+    const matchesListEmpty = document.getElementById('matchesListEmpty');
+
+    const statusEl = document.getElementById('status');
     const team1NameEl = document.getElementById('team1Name');
     const team2NameEl = document.getElementById('team2Name');
     const team1SetsEl = document.getElementById('team1Sets');
@@ -418,16 +409,23 @@
     const t2p1Input = document.getElementById('t2p1');
     const t2p2Input = document.getElementById('t2p2');
 
+    const matchLabelEl = document.getElementById('matchLabel');
     const rawScoreEl = document.getElementById('rawScore');
     const updatedAtEl = document.getElementById('updatedAt');
     const statsEl = document.getElementById('stats');
 
-    const params = new URLSearchParams(window.location.search);
-    let currentMatchId = params.get('matchId') || 'default';
-    matchIdInput.value = currentMatchId;
-
     let timer = null;
     let isEditingNames = false;
+
+    function showListView() {
+      listView.style.display = 'block';
+      matchView.style.display = 'none';
+    }
+
+    function showMatchView() {
+      listView.style.display = 'none';
+      matchView.style.display = 'block';
+    }
 
     function stopPolling() {
       if (timer) {
@@ -460,10 +458,11 @@
         }
 
         const data = await res.json();
-        statusEl.textContent = `Showing match: ${matchId}`;
+        statusEl.textContent = `Match: ${matchId}`;
         statusEl.className = 'status';
+        matchLabelEl.textContent = matchId;
 
-        // --- Players / names ---
+        // players
         const players = data.players || [];
         let team1Name = 'Team 1';
         let team2Name = 'Team 2';
@@ -474,18 +473,16 @@
         team1NameEl.textContent = team1Name.toUpperCase();
         team2NameEl.textContent = team2Name.toUpperCase();
 
-        // Fill form (only if user isn't currently changing it)
-        if (!isEditingNames && players.length >= 4) {
+        if (!isEditingNames && players.length >= 4 && namesForm.style.display !== 'none') {
           t1p1Input.value = players[0].name || '';
           t1p2Input.value = players[1].name || '';
           t2p1Input.value = players[2].name || '';
           t2p2Input.value = players[3].name || '';
         }
 
-        // --- Set scores ---
+        // sets
         let team1Sets = '-';
         let team2Sets = '-';
-
         if (data.setScore && typeof data.setScore === 'object') {
           team1Sets = data.setScore.team1 ?? '-';
           team2Sets = data.setScore.team2 ?? '-';
@@ -493,14 +490,12 @@
           team1Sets = data.stats.sets.team1 ?? '-';
           team2Sets = data.stats.sets.team2 ?? '-';
         }
-
         team1SetsEl.textContent = team1Sets;
         team2SetsEl.textContent = team2Sets;
 
-        // --- Point score (parse e.g. "40-15" or "40:15") ---
+        // points
         const scoreStr = data.score || '';
         rawScoreEl.textContent = scoreStr;
-
         let t1Points = '';
         let t2Points = '';
         const m = scoreStr.match(/(\d+)\s*[-:]\s*(\d+)/);
@@ -508,31 +503,25 @@
           t1Points = m[1];
           t2Points = m[2];
         } else {
-          // fallback: if no parse, just show string on top and dash below
           t1Points = scoreStr || '0';
           t2Points = '-';
         }
-
         team1PointsEl.textContent = t1Points;
         team2PointsEl.textContent = t2Points;
 
-        // --- Server indicator ---
+        // server
         team1ServerDot.style.display = 'none';
         team2ServerDot.style.display = 'none';
-        if (data.server === 1) {
-          team1ServerDot.style.display = 'inline-block';
-        } else if (data.server === 2) {
-          team2ServerDot.style.display = 'inline-block';
-        }
+        if (data.server === 1) team1ServerDot.style.display = 'inline-block';
+        if (data.server === 2) team2ServerDot.style.display = 'inline-block';
 
-        // --- Meta / stats debug ---
+        // meta
         if (data.updatedAt) {
           const dt = new Date(data.updatedAt);
           updatedAtEl.textContent = dt.toLocaleTimeString();
         } else {
           updatedAtEl.textContent = '';
         }
-
         statsEl.textContent = JSON.stringify(data.stats || {}, null, 2);
       } catch (err) {
         statusEl.textContent = `Fetch error: ${err.message}`;
@@ -545,44 +534,38 @@
         const res = await fetch('/api/matches');
         if (!res.ok) return;
         const list = await res.json();
-        matchesSelect.innerHTML = '<option value="">Select…</option>';
+
+        matchesList.innerHTML = '';
+        if (!list.length) {
+          matchesListEmpty.style.display = 'block';
+          return;
+        }
+        matchesListEmpty.style.display = 'none';
+
         list.forEach(m => {
-          const opt = document.createElement('option');
-          opt.value = m.matchId;
-          opt.textContent = `${m.matchId} (${m.score || 'no score yet'})`;
-          if (m.matchId === currentMatchId) opt.selected = true;
-          matchesSelect.appendChild(opt);
+          const card = document.createElement('div');
+          card.className = 'match-card';
+
+          const link = document.createElement('a');
+          link.href = `?matchId=${encodeURIComponent(m.matchId)}`;
+          link.textContent = m.matchId;
+
+          const small = document.createElement('small');
+          small.textContent = m.score || 'no score yet';
+
+          card.appendChild(link);
+          card.appendChild(small);
+          matchesList.appendChild(card);
         });
       } catch (e) {
-        // ignore
+        // ignore for now
       }
     }
 
-    // --- Events ---
-
-    startBtn.addEventListener('click', () => {
-      const matchId = matchIdInput.value.trim();
-      if (matchId) {
-        startPolling(matchId);
-        const url = new URL(window.location.href);
-        url.searchParams.set('matchId', matchId);
-        history.replaceState(null, '', url.toString());
-      }
-    });
-
-    matchesSelect.addEventListener('change', () => {
-      const matchId = matchesSelect.value;
-      if (matchId) {
-        matchIdInput.value = matchId;
-        startPolling(matchId);
-      }
-    });
-
-    // Pause polling while editing names
+    // pause polling while editing names
     namesForm.addEventListener('focusin', () => {
       isEditingNames = true;
     });
-
     namesForm.addEventListener('focusout', () => {
       setTimeout(() => {
         if (!namesForm.contains(document.activeElement)) {
@@ -596,14 +579,8 @@
       if (!currentMatchId) return;
 
       const body = {
-        team1: {
-          p1: t1p1Input.value,
-          p2: t1p2Input.value,
-        },
-        team2: {
-          p1: t2p1Input.value,
-          p2: t2p2Input.value,
-        }
+        team1: { p1: t1p1Input.value, p2: t1p2Input.value },
+        team2: { p1: t2p1Input.value, p2: t2p2Input.value }
       };
 
       try {
@@ -613,18 +590,23 @@
           body: JSON.stringify(body),
         });
         isEditingNames = false;
+        // hide form after names are set
+        namesForm.style.display = 'none';
         startPolling(currentMatchId);
       } catch (e2) {
         console.error(e2);
       }
     });
 
-    // --- Initial ---
+    // initial routing
     if (currentMatchId) {
+      showMatchView();
       startPolling(currentMatchId);
+    } else {
+      showListView();
+      fetchMatchesList();
+      setInterval(fetchMatchesList, 10000);
     }
-    fetchMatchesList();
-    setInterval(fetchMatchesList, 10000);
   </script>
 </body>
 </html>
