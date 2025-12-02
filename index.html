@@ -1,179 +1,630 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <title>Padel Live Scores</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { font-family: sans-serif; padding: 20px; }
-    .score { font-size: 2rem; margin-bottom: 1rem; }
-    .error { color: red; }
-    pre { background: #f5f5f5; padding: 10px; }
+    :root {
+      --bg: #111217;
+      --card-bg: #f5f5f5;
+      --card-border: #d4d4d4;
+      --team-text: #111217;
+      --set-bg: #111217;
+      --set-text: #ffffff;
+      --point-top-bg: #f7c948;   /* yellow-ish */
+      --point-bottom-bg: #cfcfcf;
+      --point-text: #111217;
+      --divider: #d9d9d9;
+      --server-dot: #57d657;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top left, #303144, #111217 60%);
+      color: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      font-size: 18px;
+      text-transform: uppercase;
+    }
+
+    .top-bar {
+      width: 100%;
+      max-width: 520px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .top-bar label {
+      font-size: 12px;
+      text-transform: uppercase;
+      opacity: 0.8;
+    }
+
+    .top-bar input,
+    .top-bar select,
+    .top-bar button {
+      font: inherit;
+      padding: 6px 8px;
+      border-radius: 4px;
+      border: 1px solid #44495a;
+      background: #1e2130;
+      color: #f5f5f5;
+    }
+
+    .top-bar button {
+      cursor: pointer;
+      border-color: #f7c948;
+    }
+
+    .top-bar button:hover {
+      background: #2b3042;
+    }
+
+    .top-bar-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .status {
+      font-size: 12px;
+      min-height: 16px;
+    }
+
+    .status.error {
+      color: #ff6b6b;
+    }
+
+    /* SCOREBOARD CARD */
+
+    .scoreboard-wrapper {
+      width: 100%;
+      max-width: 480px;
+      margin-top: 8px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .scoreboard {
+      display: grid;
+      grid-template-columns: 44px 1fr 64px;
+      background: var(--card-bg);
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.55);
+      min-height: 70px;
+    }
+
+    .sb-icon {
+      background: linear-gradient(135deg, #242631, #151622);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px;
+    }
+
+    .sb-icon-symbol {
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      border: 2px solid #f7c948;
+      position: relative;
+    }
+
+    .sb-icon-symbol::before,
+    .sb-icon-symbol::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 3px;
+      height: 3px;
+      border-radius: 999px;
+      background: #f7c948;
+      box-shadow:
+        -7px 0 0 #f7c948,
+        7px 0 0 #f7c948,
+        0 -7px 0 #f7c948,
+        0 7px 0 #f7c948;
+    }
+
+    .sb-teams {
+      background: #fafafa;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sb-row {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      padding: 6px 10px;
+    }
+
+    .sb-row + .sb-row {
+      border-top: 1px solid var(--divider);
+    }
+
+    .team-name {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--team-text);
+      text-transform: uppercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .team-meta {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .set-score-badge {
+      min-width: 20px;
+      padding: 2px 5px;
+      border-radius: 2px;
+      background: var(--set-bg);
+      color: var(--set-text);
+      font-size: 11px;
+      text-align: center;
+      font-weight: 700;
+    }
+
+    .server-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--server-dot);
+      box-shadow: 0 0 4px rgba(87,214,87,0.9);
+    }
+
+    .sb-points {
+      display: grid;
+      grid-template-rows: 1fr 1fr;
+      font-weight: 700;
+      font-size: 18px;
+      text-align: center;
+      border-left: 1px solid var(--card-border);
+      overflow: hidden;
+    }
+
+    .sb-point-top,
+    .sb-point-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sb-point-top {
+      background: var(--point-top-bg);
+      color: var(--point-text);
+    }
+
+    .sb-point-bottom {
+      background: var(--point-bottom-bg);
+      color: var(--point-text);
+      border-top: 1px solid var(--card-border);
+    }
+
+    /* NAMES FORM / DEBUG */
+
+    .panel {
+      width: 100%;
+      max-width: 520px;
+      margin-top: 16px;
+      background: #181a25;
+      border-radius: 6px;
+      padding: 12px;
+      border: 1px solid #26293a;
+    }
+
+    .panel h3 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      opacity: 0.85;
+    }
+
+    .names-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .names-grid label {
+      font-size: 11px;
+      opacity: 0.8;
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .names-grid input {
+      width: 100%;
+      padding: 5px 6px;
+      border-radius: 4px;
+      border: 1px solid #3b3f52;
+      background: #111217;
+      color: #f5f5f5;
+      font-size: 13px;
+    }
+
+    .panel button {
+      margin-top: 8px;
+      padding: 6px 10px;
+      border-radius: 4px;
+      border: 1px solid #f7c948;
+      background: #2b3042;
+      color: #f5f5f5;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .panel button:hover {
+      background: #343a4f;
+    }
+
+    .debug {
+      margin-top: 8px;
+      font-size: 11px;
+      max-height: 180px;
+      overflow: auto;
+      background: #111217;
+      padding: 6px;
+      border-radius: 4px;
+      border: 1px solid #25293a;
+      white-space: pre-wrap;
+    }
+
+    @media (max-width: 480px) {
+      .scoreboard {
+        transform: scale(0.95);
+        transform-origin: top center;
+      }
+    }
   </style>
 </head>
 <body>
-  <h1>Padel Live Scores</h1>
+  <h1>Padel Live</h1>
 
-  <label>
-    Match ID:
-    <input id="matchIdInput" value="">
-  </label>
-  <button id="startBtn">Start</button>
+  <div class="top-bar">
+    <div class="top-bar-group">
+      <label for="matchesSelect">Running matches</label>
+      <select id="matchesSelect">
+        <option value="">None</option>
+      </select>
+    </div>
 
-  <select id="matchesSelect"></select>
+    <div class="top-bar-group">
+      <label for="matchIdInput">Match ID</label>
+      <input id="matchIdInput" placeholder="court1">
+    </div>
 
-<div id="players"></div>
+    <div class="top-bar-group">
+      <label>&nbsp;</label>
+      <button id="startBtn" type="button">Show match</button>
+    </div>
+  </div>
 
-<form id="namesForm">
-  <h3>Set player names</h3>
-  <div>Team 1</div>
-  <input id="t1p1" placeholder="Team 1 - Player 1">
-  <input id="t1p2" placeholder="Team 1 - Player 2">
-  <div>Team 2</div>
-  <input id="t2p1" placeholder="Team 2 - Player 1">
-  <input id="t2p2" placeholder="Team 2 - Player 2">
-  <button type="submit">Save names</button>
-</form>
+  <div id="status" class="status"></div>
 
-  
-  <div id="status"></div>
-  <div class="score" id="score"></div>
-  <div id="updatedAt"></div>
-  <h3>Stats</h3>
-  <pre id="stats"></pre>
+  <!-- SCOREBOARD -->
+  <div class="scoreboard-wrapper">
+    <div class="scoreboard">
+      <div class="sb-icon">
+        <div class="sb-icon-symbol"></div>
+      </div>
+
+      <div class="sb-teams">
+        <div class="sb-row">
+          <div class="team-name" id="team1Name">TEAM 1</div>
+          <div class="team-meta">
+            <span class="server-dot" id="team1ServerDot" style="display:none;"></span>
+            <span class="set-score-badge" id="team1Sets">-</span>
+          </div>
+        </div>
+        <div class="sb-row">
+          <div class="team-name" id="team2Name">TEAM 2</div>
+          <div class="team-meta">
+            <span class="server-dot" id="team2ServerDot" style="display:none;"></span>
+            <span class="set-score-badge" id="team2Sets">-</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-points">
+        <div class="sb-point-top" id="team1Points">0</div>
+        <div class="sb-point-bottom" id="team2Points">0</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NAMES + DEBUG PANEL -->
+  <div class="panel">
+    <h3>Player Names for Current Match</h3>
+    <form id="namesForm">
+      <div class="names-grid">
+        <div>
+          <label for="t1p1">Team 1 - Player 1</label>
+          <input id="t1p1" autocomplete="off">
+        </div>
+        <div>
+          <label for="t1p2">Team 1 - Player 2</label>
+          <input id="t1p2" autocomplete="off">
+        </div>
+        <div>
+          <label for="t2p1">Team 2 - Player 1</label>
+          <input id="t2p1" autocomplete="off">
+        </div>
+        <div>
+          <label for="t2p2">Team 2 - Player 2</label>
+          <input id="t2p2" autocomplete="off">
+        </div>
+      </div>
+      <button type="submit">Save Names</button>
+    </form>
+
+    <div class="debug">
+      <strong>Raw score:</strong> <span id="rawScore"></span><br>
+      <strong>Last update:</strong> <span id="updatedAt"></span><br>
+      <strong>Stats JSON:</strong>
+      <pre id="stats"></pre>
+    </div>
+  </div>
 
   <script>
-  const matchIdInput = document.getElementById('matchIdInput');
-  const startBtn = document.getElementById('startBtn');
-  const statusEl = document.getElementById('status');
-  const scoreEl = document.getElementById('score');
-  const updatedAtEl = document.getElementById('updatedAt');
-  const statsEl = document.getElementById('stats');
+    const matchIdInput = document.getElementById('matchIdInput');
+    const startBtn = document.getElementById('startBtn');
+    const statusEl = document.getElementById('status');
+    const matchesSelect = document.getElementById('matchesSelect');
 
-  // New elements you add in the body:
-  // <div id="players"></div>
-  // <form id="namesForm"> ... </form>
-  // <select id="matchesSelect"></select>
+    const team1NameEl = document.getElementById('team1Name');
+    const team2NameEl = document.getElementById('team2Name');
+    const team1SetsEl = document.getElementById('team1Sets');
+    const team2SetsEl = document.getElementById('team2Sets');
+    const team1PointsEl = document.getElementById('team1Points');
+    const team2PointsEl = document.getElementById('team2Points');
+    const team1ServerDot = document.getElementById('team1ServerDot');
+    const team2ServerDot = document.getElementById('team2ServerDot');
 
-  const playersEl = document.getElementById('players');
-  const namesForm = document.getElementById('namesForm');
-  const matchesSelect = document.getElementById('matchesSelect');
+    const namesForm = document.getElementById('namesForm');
+    const t1p1Input = document.getElementById('t1p1');
+    const t1p2Input = document.getElementById('t1p2');
+    const t2p1Input = document.getElementById('t2p1');
+    const t2p2Input = document.getElementById('t2p2');
 
-  const params = new URLSearchParams(window.location.search);
-  let currentMatchId = params.get('matchId') || 'default';
-  matchIdInput.value = currentMatchId;
+    const rawScoreEl = document.getElementById('rawScore');
+    const updatedAtEl = document.getElementById('updatedAt');
+    const statsEl = document.getElementById('stats');
 
-  let timer = null;
+    const params = new URLSearchParams(window.location.search);
+    let currentMatchId = params.get('matchId') || 'default';
+    matchIdInput.value = currentMatchId;
 
-  async function fetchMatch(matchId) {
-    try {
-      const res = await fetch(`/api/match/${encodeURIComponent(matchId)}`);
-      if (!res.ok) {
-        statusEl.textContent = `Error: ${res.status}`;
-        statusEl.className = 'error';
-        scoreEl.textContent = '';
-        updatedAtEl.textContent = '';
-        statsEl.textContent = '';
-        playersEl.textContent = '';
-        return;
+    let timer = null;
+    let isEditingNames = false;
+
+    function stopPolling() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
       }
-      const data = await res.json();
-      statusEl.textContent = `Showing match: ${matchId}`;
-      statusEl.className = '';
-      scoreEl.textContent = data.score;
-      updatedAtEl.textContent = `Updated: ${new Date(data.updatedAt).toLocaleTimeString()}`;
-      statsEl.textContent = JSON.stringify(data.stats || {}, null, 2);
+    }
 
-      const players = data.players || [];
-      playersEl.innerHTML = players.map(p => `${p.team === 1 ? 'Team 1' : 'Team 2'}: ${p.name}`).join('<br>');
+    function startPolling(matchId) {
+      currentMatchId = matchId;
+      stopPolling();
 
-      // prefill form if present
-      const t1p1Input = document.getElementById('t1p1');
-      const t1p2Input = document.getElementById('t1p2');
-      const t2p1Input = document.getElementById('t2p1');
-      const t2p2Input = document.getElementById('t2p2');
-      if (players.length === 4 && t1p1Input) {
-        t1p1Input.value = players[0].name;
-        t1p2Input.value = players[1].name;
-        t2p1Input.value = players[2].name;
-        t2p2Input.value = players[3].name;
+      async function poll() {
+        if (!isEditingNames) {
+          await fetchMatch(matchId);
+        }
       }
-    } catch (err) {
-      statusEl.textContent = `Fetch error: ${err.message}`;
-      statusEl.className = 'error';
-    }
-  }
 
-  async function fetchMatchesList() {
-    try {
-      const res = await fetch('/api/matches');
-      if (!res.ok) return;
-      const list = await res.json();
-      matchesSelect.innerHTML = '';
-      for (const m of list) {
-        const opt = document.createElement('option');
-        opt.value = m.matchId;
-        opt.textContent = `${m.matchId} (${m.score || 'no score yet'})`;
-        matchesSelect.appendChild(opt);
+      poll();
+      timer = setInterval(poll, 3000);
+    }
+
+    async function fetchMatch(matchId) {
+      try {
+        const res = await fetch(`/api/match/${encodeURIComponent(matchId)}`);
+        if (!res.ok) {
+          statusEl.textContent = `Error: ${res.status}`;
+          statusEl.className = 'status error';
+          return;
+        }
+
+        const data = await res.json();
+        statusEl.textContent = `Showing match: ${matchId}`;
+        statusEl.className = 'status';
+
+        // --- Players / names ---
+        const players = data.players || [];
+        let team1Name = 'Team 1';
+        let team2Name = 'Team 2';
+        if (players.length >= 4) {
+          team1Name = `${players[0].name || 'P1'}/${players[1].name || 'P2'}`;
+          team2Name = `${players[2].name || 'P3'}/${players[3].name || 'P4'}`;
+        }
+        team1NameEl.textContent = team1Name.toUpperCase();
+        team2NameEl.textContent = team2Name.toUpperCase();
+
+        // Fill form (only if user isn't currently changing it)
+        if (!isEditingNames && players.length >= 4) {
+          t1p1Input.value = players[0].name || '';
+          t1p2Input.value = players[1].name || '';
+          t2p1Input.value = players[2].name || '';
+          t2p2Input.value = players[3].name || '';
+        }
+
+        // --- Set scores ---
+        let team1Sets = '-';
+        let team2Sets = '-';
+
+        if (data.setScore && typeof data.setScore === 'object') {
+          team1Sets = data.setScore.team1 ?? '-';
+          team2Sets = data.setScore.team2 ?? '-';
+        } else if (data.stats && data.stats.sets) {
+          team1Sets = data.stats.sets.team1 ?? '-';
+          team2Sets = data.stats.sets.team2 ?? '-';
+        }
+
+        team1SetsEl.textContent = team1Sets;
+        team2SetsEl.textContent = team2Sets;
+
+        // --- Point score (parse e.g. "40-15" or "40:15") ---
+        const scoreStr = data.score || '';
+        rawScoreEl.textContent = scoreStr;
+
+        let t1Points = '';
+        let t2Points = '';
+        const m = scoreStr.match(/(\d+)\s*[-:]\s*(\d+)/);
+        if (m) {
+          t1Points = m[1];
+          t2Points = m[2];
+        } else {
+          // fallback: if no parse, just show string on top and dash below
+          t1Points = scoreStr || '0';
+          t2Points = '-';
+        }
+
+        team1PointsEl.textContent = t1Points;
+        team2PointsEl.textContent = t2Points;
+
+        // --- Server indicator ---
+        team1ServerDot.style.display = 'none';
+        team2ServerDot.style.display = 'none';
+        if (data.server === 1) {
+          team1ServerDot.style.display = 'inline-block';
+        } else if (data.server === 2) {
+          team2ServerDot.style.display = 'inline-block';
+        }
+
+        // --- Meta / stats debug ---
+        if (data.updatedAt) {
+          const dt = new Date(data.updatedAt);
+          updatedAtEl.textContent = dt.toLocaleTimeString();
+        } else {
+          updatedAtEl.textContent = '';
+        }
+
+        statsEl.textContent = JSON.stringify(data.stats || {}, null, 2);
+      } catch (err) {
+        statusEl.textContent = `Fetch error: ${err.message}`;
+        statusEl.className = 'status error';
       }
-    } catch (e) {
-      // ignore
     }
-  }
 
-  function startPolling(matchId) {
-    currentMatchId = matchId;
-    if (timer) clearInterval(timer);
-    fetchMatch(matchId);
-    timer = setInterval(() => fetchMatch(matchId), 3000);
-  }
-
-  startBtn.addEventListener('click', () => {
-    const matchId = matchIdInput.value.trim();
-    if (matchId) {
-      startPolling(matchId);
-      const url = new URL(window.location.href);
-      url.searchParams.set('matchId', matchId);
-      history.replaceState(null, '', url.toString());
-    }
-  });
-
-  matchesSelect.addEventListener('change', () => {
-    const matchId = matchesSelect.value;
-    if (matchId) {
-      matchIdInput.value = matchId;
-      startPolling(matchId);
-    }
-  });
-
-  namesForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (!currentMatchId) return;
-    const body = {
-      team1: {
-        p1: document.getElementById('t1p1').value,
-        p2: document.getElementById('t1p2').value,
-      },
-      team2: {
-        p1: document.getElementById('t2p1').value,
-        p2: document.getElementById('t2p2').value,
+    async function fetchMatchesList() {
+      try {
+        const res = await fetch('/api/matches');
+        if (!res.ok) return;
+        const list = await res.json();
+        matchesSelect.innerHTML = '<option value="">Select…</option>';
+        list.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.matchId;
+          opt.textContent = `${m.matchId} (${m.score || 'no score yet'})`;
+          if (m.matchId === currentMatchId) opt.selected = true;
+          matchesSelect.appendChild(opt);
+        });
+      } catch (e) {
+        // ignore
       }
-    };
-    await fetch(`/api/match/${encodeURIComponent(currentMatchId)}/players`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+    }
+
+    // --- Events ---
+
+    startBtn.addEventListener('click', () => {
+      const matchId = matchIdInput.value.trim();
+      if (matchId) {
+        startPolling(matchId);
+        const url = new URL(window.location.href);
+        url.searchParams.set('matchId', matchId);
+        history.replaceState(null, '', url.toString());
+      }
     });
-    fetchMatch(currentMatchId);
-  });
 
-  // Initial
-  if (currentMatchId) {
-    startPolling(currentMatchId);
-  }
-  fetchMatchesList();
-  setInterval(fetchMatchesList, 10000); // refresh match list every 10s
-</script>
+    matchesSelect.addEventListener('change', () => {
+      const matchId = matchesSelect.value;
+      if (matchId) {
+        matchIdInput.value = matchId;
+        startPolling(matchId);
+      }
+    });
 
+    // Pause polling while editing names
+    namesForm.addEventListener('focusin', () => {
+      isEditingNames = true;
+    });
+
+    namesForm.addEventListener('focusout', () => {
+      setTimeout(() => {
+        if (!namesForm.contains(document.activeElement)) {
+          isEditingNames = false;
+        }
+      }, 0);
+    });
+
+    namesForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!currentMatchId) return;
+
+      const body = {
+        team1: {
+          p1: t1p1Input.value,
+          p2: t1p2Input.value,
+        },
+        team2: {
+          p1: t2p1Input.value,
+          p2: t2p2Input.value,
+        }
+      };
+
+      try {
+        await fetch(`/api/match/${encodeURIComponent(currentMatchId)}/players`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        isEditingNames = false;
+        startPolling(currentMatchId);
+      } catch (e2) {
+        console.error(e2);
+      }
+    });
+
+    // --- Initial ---
+    if (currentMatchId) {
+      startPolling(currentMatchId);
+    }
+    fetchMatchesList();
+    setInterval(fetchMatchesList, 10000);
+  </script>
 </body>
 </html>
-
