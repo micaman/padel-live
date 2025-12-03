@@ -297,6 +297,8 @@
       }
     }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
 </head>
 <body>
   <h1>Padel Live</h1>
@@ -341,6 +343,10 @@
         </div>
       </div>
     </div>
+<div class="panel">
+  <h3>Player Impact (Winners − Errors)</h3>
+  <canvas id="impactChart" height="200"></canvas>
+</div>
 
     <div class="panel">
       <h3>Player Names</h3>
@@ -377,6 +383,8 @@
   </div>
 
   <script>
+    let impactChart = null;
+
     const params = new URLSearchParams(window.location.search);
     let currentMatchId = params.get('matchId') || null;
 
@@ -529,6 +537,8 @@
           playerStats: data.playerStats || []
         };
         statsEl.textContent = JSON.stringify(debug, null, 2);
+        updateImpactChart(data.timeline || []);
+
       } catch (err) {
         statusEl.textContent = `Fetch error: ${err.message}`;
         statusEl.className = 'status error';
@@ -613,6 +623,76 @@
       fetchMatchesList();
       setInterval(fetchMatchesList, 10000);
     }
+
+function updateImpactChart(timeline) {
+  const canvas = document.getElementById('impactChart');
+  if (!canvas) return;
+
+  if (!timeline || !timeline.length) {
+    // If no data, wipe chart
+    if (impactChart) {
+      impactChart.destroy();
+      impactChart = null;
+    }
+    return;
+  }
+
+  // x = 1..N (point index)
+  const labels = timeline.map((_, idx) => idx + 1);
+
+  // Assume up to 4 players; if fewer, it still works
+  const playerCount = Math.max(...timeline.map(s => (s.diff ? s.diff.length : 0)));
+
+  const datasets = [];
+  for (let p = 0; p < playerCount; p++) {
+    const data = timeline.map(s => (s.diff && s.diff[p] != null ? s.diff[p] : 0));
+
+    datasets.push({
+      label: `Player ${p + 1}`,
+      data,
+      tension: 0.3,
+      borderWidth: 2,
+      fill: false
+      // colors left default per instructions
+    });
+  }
+
+  if (impactChart) {
+    impactChart.data.labels = labels;
+    impactChart.data.datasets = datasets;
+    impactChart.update();
+  } else {
+    impactChart = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: { color: '#f5f5f5' }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: '#f5f5f5' },
+            grid: { display: false }
+          },
+          y: {
+            ticks: { color: '#f5f5f5' },
+            grid: { color: 'rgba(255,255,255,0.1)' }
+          }
+        }
+      }
+    });
+  }
+}
+
   </script>
 </body>
 </html>
+
