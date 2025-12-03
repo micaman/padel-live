@@ -43,6 +43,11 @@
       letter-spacing: 0.06em;
     }
 
+    .status {
+      font-size: 12px;
+      min-height: 16px;
+    }
+
     /* LIST VIEW */
     #listView {
       width: 100%;
@@ -70,6 +75,12 @@
     .match-card small {
       opacity: 0.8;
       font-size: 12px;
+    }
+
+    #matchesListEmpty {
+      opacity: .7;
+      margin-top: 8px;
+      font-size: 13px;
     }
 
     /* MATCH VIEW */
@@ -118,10 +129,11 @@
     }
 
     .sb-row {
-      padding: 6px 10px;
+      padding: 0 10px;
       display: grid;
       grid-template-columns: 1fr auto;
-      align-items: center;
+      align-items: stretch;       /* 🔥 let children stretch vertically */
+      min-height: 32px;
     }
 
     .sb-row + .sb-row {
@@ -136,27 +148,36 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      display: flex;
+      align-items: center; /* vertically center text */
     }
 
     .team-meta {
       display: flex;
-      align-items: center;
+      align-items: stretch;      /* 🔥 make children as tall as row */
+      justify-content: flex-end;
       gap: 4px;
     }
 
     .set-score-badge {
-      padding: 2px 6px;
-      border-radius: 2px;
+      padding: 0 8px;            /* horizontal padding only */
       background: var(--set-bg);
       color: var(--set-text);
       font-size: 11px;
       font-weight: 700;
+      border-radius: 3px;
+      display: flex;             /* 🔥 center text inside full-height block */
+      align-items: center;
+      justify-content: center;
+      height: 100%;              /* 🔥 full height of parent (row) */
+      box-sizing: border-box;
     }
 
     .server-dot {
       width: 7px; height: 7px;
       border-radius: 50%;
       background: var(--server-dot);
+      align-self: center;
     }
 
     .sb-points {
@@ -168,21 +189,22 @@
       font-size: 18px;
     }
 
-    .sb-point-top {
-      background: var(--point-top-bg);
-      color: var(--point-text);
+    .sb-point-top,
+    .sb-point-bottom {
       display: flex;
       align-items: center;
       justify-content: center;
+    }
+
+    .sb-point-top {
+      background: var(--point-top-bg);
+      color: var(--point-text);
     }
 
     .sb-point-bottom {
       background: var(--point-bottom-bg);
       color: var(--point-text);
       border-top: 1px solid var(--card-border);
-      display: flex;
-      align-items: center;
-      justify-content: center;
     }
 
     /* PANELS */
@@ -234,8 +256,8 @@
     /* CHART FIX */
     .chart-container {
       width: 100%;
-      height: 200px;
-      max-height: 200px;
+      height: 400px;
+      max-height: 400px;
       position: relative;
       overflow: hidden;
     }
@@ -251,7 +273,6 @@
       overflow: auto;
       white-space: pre-wrap;
     }
-
   </style>
 </head>
 
@@ -262,7 +283,7 @@
   <div id="listView">
     <p style="opacity:.85;">Select a match to view.</p>
     <div id="matchesList"></div>
-    <div id="matchesListEmpty" style="display:none; opacity:.7;">No matches yet.</div>
+    <div id="matchesListEmpty">No matches yet.</div>
   </div>
 
   <!-- MATCH PAGE -->
@@ -403,42 +424,63 @@ async function fetchMatch(id) {
     if (!res.ok) return;
 
     const data = await res.json();
-
-    // scoreboard
-    matchLabelEl.textContent = id;
     statusEl.textContent = "Match " + id;
+    matchLabelEl.textContent = id;
 
-    const players = data.players || [];
+    // Safe access to sets/games/points
+    const sets = data.sets || {};
+    const games = data.games || {};
+    const points = data.points || {};
 
-    team1NameEl.textContent = (players[0]?.name + "/" + players[1]?.name).toUpperCase();
-    team2NameEl.textContent = (players[2]?.name + "/" + players[3]?.name).toUpperCase();
+    // names
+    const p = data.players || [];
+    const t1n1 = p[0]?.name || 'Team 1 - P1';
+    const t1n2 = p[1]?.name || 'Team 1 - P2';
+    const t2n1 = p[2]?.name || 'Team 2 - P1';
+    const t2n2 = p[3]?.name || 'Team 2 - P2';
 
-    if (!isEditingNames && players.length === 4) {
-      t1p1Input.value = players[0].name;
-      t1p2Input.value = players[1].name;
-      t2p1Input.value = players[2].name;
-      t2p2Input.value = players[3].name;
+    team1NameEl.textContent = `${t1n1}/${t1n2}`.toUpperCase();
+    team2NameEl.textContent = `${t2n1}/${t2n2}`.toUpperCase();
+
+    if (!isEditingNames && p.length === 4 && namesForm.style.display !== 'none') {
+      t1p1Input.value = t1n1;
+      t1p2Input.value = t1n2;
+      t2p1Input.value = t2n1;
+      t2p2Input.value = t2n2;
     }
 
-    team1SetsEl.textContent = data.sets?.team1 ?? "-";
-    team2SetsEl.textContent = data.sets?.team2 ?? "-";
-    team1PointsEl.textContent = data.points?.team1 ?? "0";
-    team2PointsEl.textContent = data.points?.team2 ?? "0";
+    // sets badges 🔥 (these are the ones that weren't updating)
+    team1SetsEl.textContent = sets.team1 ?? "-";
+    team2SetsEl.textContent = sets.team2 ?? "-";
 
+    // points
+    team1PointsEl.textContent = points.team1 ?? "0";
+    team2PointsEl.textContent = points.team2 ?? "0";
+
+    // server
     team1ServerDot.style.display = data.server === 1 ? 'inline-block' : 'none';
     team2ServerDot.style.display = data.server === 2 ? 'inline-block' : 'none';
 
-    scoreSummaryEl.textContent = `S ${data.sets.team1}-${data.sets.team2}  G ${data.games.team1}-${data.games.team2}  P ${data.points.team1}-${data.points.team2}`;
+    // summary text
+    const s1 = sets.team1 ?? "-";
+    const s2 = sets.team2 ?? "-";
+    const g1 = games.team1 ?? "-";
+    const g2 = games.team2 ?? "-";
+    const p1 = points.team1 ?? "-";
+    const p2 = points.team2 ?? "-";
+    scoreSummaryEl.textContent = `S ${s1}-${s2}  G ${g1}-${g2}  P ${p1}-${p2}`;
 
-    updatedAtEl.textContent = data.updatedAt ? new Date(data.updatedAt).toLocaleTimeString() : "";
+    updatedAtEl.textContent = data.updatedAt
+      ? new Date(data.updatedAt).toLocaleTimeString()
+      : "";
 
-    statsEl.textContent = JSON.stringify({
-      games: data.games,
-      playerStats: data.playerStats
-    }, null, 2);
+    statsEl.textContent = JSON.stringify(
+      { games, playerStats: data.playerStats || [] },
+      null,
+      2
+    );
 
     updateImpactChart(data.timeline || []);
-
   } catch (err) {
     console.error(err);
   }
@@ -471,6 +513,7 @@ async function fetchList() {
 
 namesForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (!currentMatchId) return;
 
   const body = {
     team1: { p1: t1p1Input.value, p2: t1p2Input.value },
@@ -483,33 +526,41 @@ namesForm.addEventListener('submit', async (e) => {
     body: JSON.stringify(body)
   });
 
-  namesForm.style.display = 'none';
+  namesForm.parentNode.style.display = 'none';
   isEditingNames = false;
 });
 
-namesForm.addEventListener('focusin', () => isEditingNames = true);
+namesForm.addEventListener('focusin', () => { isEditingNames = true; });
 namesForm.addEventListener('focusout', () => {
   setTimeout(() => {
-    if (!namesForm.contains(document.activeElement)) isEditingNames = false;
+    if (!namesForm.contains(document.activeElement)) {
+      isEditingNames = false;
+    }
   }, 50);
 });
 
 function updateImpactChart(timeline) {
-  const ctx = document.getElementById('impactChart').getContext('2d');
+  const canvas = document.getElementById('impactChart');
+  if (!canvas) return;
+
   if (!timeline.length) {
-    if (impactChart) impactChart.destroy();
-    impactChart = null;
+    if (impactChart) {
+      impactChart.destroy();
+      impactChart = null;
+    }
     return;
   }
 
-  const labels = timeline.map((_, i) => i + 1);
-  const playerCount = Math.max(...timeline.map(s => s.diff.length));
+  const ctx = canvas.getContext('2d');
 
+  const labels = timeline.map((_, i) => i + 1);
+  const playerCount = Math.max(...timeline.map(s => (s.diff || []).length));
   const datasets = [];
+
   for (let i = 0; i < playerCount; i++) {
     datasets.push({
       label: `Player ${i + 1}`,
-      data: timeline.map(s => s.diff[i]),
+      data: timeline.map(s => (s.diff && s.diff[i] != null ? s.diff[i] : 0)),
       borderWidth: 2,
       tension: 0.3,
       fill: false
@@ -531,10 +582,17 @@ function updateImpactChart(timeline) {
           y: {
             suggestedMin: -5,
             suggestedMax: 5,
-            ticks: { color: '#fff' }
+            ticks: { color: '#f5f5f5' },
+            grid: { color: 'rgba(255,255,255,0.1)' }
           },
           x: {
-            ticks: { color: '#fff' }
+            ticks: { color: '#f5f5f5' },
+            grid: { display: false }
+          }
+        },
+        plugins: {
+          legend: {
+            labels: { color: '#f5f5f5' }
           }
         }
       }
