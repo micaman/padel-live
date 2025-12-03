@@ -1,9 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-8" />
   <title>Padel Live Scores</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
   <style>
     :root {
       --bg: #111217;
@@ -19,52 +23,37 @@
       --server-dot: #57d657;
     }
 
-    * { box-sizing: border-box; }
-
     body {
       margin: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 20px;
       background: radial-gradient(circle at top left, #303144, #111217 60%);
+      font-family: system-ui, -apple-system, sans-serif;
       color: #f5f5f5;
-      min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 20px;
+      min-height: 100vh;
     }
 
     h1 {
       margin: 0 0 10px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
       font-size: 18px;
+      font-weight: 600;
       text-transform: uppercase;
+      letter-spacing: 0.06em;
     }
-
-    .status {
-      font-size: 12px;
-      min-height: 16px;
-    }
-    .status.error { color: #ff6b6b; }
 
     /* LIST VIEW */
-
     #listView {
       width: 100%;
       max-width: 520px;
     }
 
-    #matchesListEmpty {
-      font-size: 13px;
-      opacity: 0.8;
-      margin-top: 8px;
-    }
-
     .match-card {
       background: #181a25;
-      border-radius: 6px;
       border: 1px solid #26293a;
-      padding: 10px;
+      padding: 12px;
+      border-radius: 6px;
       margin-top: 8px;
       display: flex;
       justify-content: space-between;
@@ -79,34 +68,33 @@
     }
 
     .match-card small {
-      font-size: 11px;
       opacity: 0.8;
+      font-size: 12px;
     }
 
-    /* SCOREBOARD VIEW */
-
+    /* MATCH VIEW */
     #matchView {
       width: 100%;
       max-width: 520px;
+      display: none;
     }
 
     .scoreboard-wrapper {
-      width: 100%;
-      max-width: 480px;
-      margin: 8px auto 0;
+      margin-top: 10px;
       display: flex;
       justify-content: center;
     }
 
     .scoreboard {
+      width: 100%;
+      max-width: 480px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
       display: grid;
       grid-template-columns: 44px 1fr 64px;
-      background: var(--card-bg);
-      border-radius: 6px;
       overflow: hidden;
-      border: 1px solid var(--card-border);
       box-shadow: 0 6px 18px rgba(0,0,0,0.55);
-      min-height: 70px;
     }
 
     .sb-icon {
@@ -114,33 +102,13 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 4px;
     }
 
     .sb-icon-symbol {
-      width: 22px;
-      height: 22px;
-      border-radius: 999px;
+      width: 22px; height: 22px;
+      border-radius: 50%;
       border: 2px solid #f7c948;
       position: relative;
-    }
-
-    .sb-icon-symbol::before,
-    .sb-icon-symbol::after {
-      content: "";
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      width: 3px;
-      height: 3px;
-      border-radius: 999px;
-      background: #f7c948;
-      box-shadow:
-        -7px 0 0 #f7c948,
-        7px 0 0 #f7c948,
-        0 -7px 0 #f7c948,
-        0 7px 0 #f7c948;
     }
 
     .sb-teams {
@@ -150,20 +118,20 @@
     }
 
     .sb-row {
-      flex: 1;
+      padding: 6px 10px;
       display: grid;
       grid-template-columns: 1fr auto;
       align-items: center;
-      padding: 6px 10px;
     }
 
-    .sb-row + .sb-row { border-top: 1px solid var(--divider); }
+    .sb-row + .sb-row {
+      border-top: 1px solid var(--divider);
+    }
 
     .team-name {
+      color: var(--team-text);
       font-size: 13px;
       font-weight: 600;
-      letter-spacing: 0.08em;
-      color: var(--team-text);
       text-transform: uppercase;
       white-space: nowrap;
       overflow: hidden;
@@ -177,148 +145,133 @@
     }
 
     .set-score-badge {
-      min-width: 20px;
-      padding: 2px 5px;
+      padding: 2px 6px;
       border-radius: 2px;
       background: var(--set-bg);
       color: var(--set-text);
       font-size: 11px;
-      text-align: center;
       font-weight: 700;
     }
 
     .server-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 999px;
+      width: 7px; height: 7px;
+      border-radius: 50%;
       background: var(--server-dot);
-      box-shadow: 0 0 4px rgba(87,214,87,0.9);
     }
 
     .sb-points {
       display: grid;
       grid-template-rows: 1fr 1fr;
-      font-weight: 700;
-      font-size: 18px;
-      text-align: center;
       border-left: 1px solid var(--card-border);
-      overflow: hidden;
-    }
-
-    .sb-point-top,
-    .sb-point-bottom {
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      text-align: center;
+      font-weight: bold;
+      font-size: 18px;
     }
 
     .sb-point-top {
       background: var(--point-top-bg);
       color: var(--point-text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .sb-point-bottom {
       background: var(--point-bottom-bg);
       color: var(--point-text);
       border-top: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
-    /* PANEL */
-
+    /* PANELS */
     .panel {
-      width: 100%;
-      margin-top: 16px;
       background: #181a25;
+      border: 1px solid #26293a;
       border-radius: 6px;
       padding: 12px;
-      border: 1px solid #26293a;
+      margin-top: 16px;
     }
 
     .panel h3 {
       margin: 0 0 8px;
       font-size: 13px;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      opacity: 0.85;
+      opacity: .85;
     }
 
     .names-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 6px;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
     }
 
     .names-grid label {
       font-size: 11px;
-      opacity: 0.8;
-      display: block;
-      margin-bottom: 2px;
+      opacity: .7;
     }
 
     .names-grid input {
       width: 100%;
-      padding: 5px 6px;
+      padding: 6px;
       border-radius: 4px;
       border: 1px solid #3b3f52;
       background: #111217;
-      color: #f5f5f5;
-      font-size: 13px;
+      color: #fff;
     }
 
     .panel button {
       margin-top: 8px;
       padding: 6px 10px;
-      border-radius: 4px;
       border: 1px solid #f7c948;
       background: #2b3042;
-      color: #f5f5f5;
+      border-radius: 4px;
+      color: #fff;
       cursor: pointer;
-      font-size: 13px;
     }
 
-    .panel button:hover { background: #343a4f; }
+    /* CHART FIX */
+    .chart-container {
+      width: 100%;
+      height: 200px;
+      max-height: 200px;
+      position: relative;
+      overflow: hidden;
+    }
 
     .debug {
-      margin-top: 8px;
-      font-size: 11px;
-      max-height: 180px;
-      overflow: auto;
+      margin-top: 10px;
+      padding: 10px;
       background: #111217;
-      padding: 6px;
-      border-radius: 4px;
+      border-radius: 6px;
       border: 1px solid #25293a;
+      font-size: 11px;
+      max-height: 200px;
+      overflow: auto;
       white-space: pre-wrap;
     }
 
-    @media (max-width: 480px) {
-      .scoreboard {
-        transform: scale(0.95);
-        transform-origin: top center;
-      }
-    }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
 </head>
+
 <body>
   <h1>Padel Live</h1>
 
-  <!-- LIST VIEW -->
+  <!-- HOME LIST -->
   <div id="listView">
-    <p style="font-size:13px;opacity:.85;">Select a match to view its live scoreboard.</p>
+    <p style="opacity:.85;">Select a match to view.</p>
     <div id="matchesList"></div>
-    <div id="matchesListEmpty" style="display:none;">No matches yet. Start scoring from the watch.</div>
+    <div id="matchesListEmpty" style="display:none; opacity:.7;">No matches yet.</div>
   </div>
 
-  <!-- MATCH VIEW -->
-  <div id="matchView" style="display:none;">
+  <!-- MATCH PAGE -->
+  <div id="matchView">
     <div id="status" class="status"></div>
 
     <div class="scoreboard-wrapper">
       <div class="scoreboard">
-        <div class="sb-icon">
-          <div class="sb-icon-symbol"></div>
-        </div>
+        <div class="sb-icon"><div class="sb-icon-symbol"></div></div>
 
         <div class="sb-teams">
           <div class="sb-row">
@@ -343,30 +296,27 @@
         </div>
       </div>
     </div>
-<div class="panel">
-  <h3>Player Impact (Winners − Errors)</h3>
-  <canvas id="impactChart" height="200"></canvas>
-</div>
 
+    <!-- PLAYER NAME FORM -->
     <div class="panel">
       <h3>Player Names</h3>
       <form id="namesForm">
         <div class="names-grid">
           <div>
-            <label for="t1p1">Team 1 - Player 1</label>
-            <input id="t1p1" autocomplete="off">
+            <label>Team 1 - Player 1</label>
+            <input id="t1p1">
           </div>
           <div>
-            <label for="t1p2">Team 1 - Player 2</label>
-            <input id="t1p2" autocomplete="off">
+            <label>Team 1 - Player 2</label>
+            <input id="t1p2">
           </div>
           <div>
-            <label for="t2p1">Team 2 - Player 1</label>
-            <input id="t2p1" autocomplete="off">
+            <label>Team 2 - Player 1</label>
+            <input id="t2p1">
           </div>
           <div>
-            <label for="t2p2">Team 2 - Player 2</label>
-            <input id="t2p2" autocomplete="off">
+            <label>Team 2 - Player 2</label>
+            <input id="t2p2">
           </div>
         </div>
         <button type="submit">Save Names</button>
@@ -374,286 +324,195 @@
 
       <div class="debug">
         <strong>Match:</strong> <span id="matchLabel"></span><br>
-        <strong>Score summary:</strong> <span id="scoreSummary"></span><br>
-        <strong>Last update:</strong> <span id="updatedAt"></span><br>
-        <strong>Games &amp; Player stats:</strong>
+        <strong>Summary:</strong> <span id="scoreSummary"></span><br>
+        <strong>Last update:</strong> <span id="updatedAt"></span><br><br>
+        <strong>Stats:</strong>
         <pre id="stats"></pre>
+      </div>
+    </div>
+
+    <!-- CHART -->
+    <div class="panel">
+      <h3>Player Impact (Winners − Errors)</h3>
+      <div class="chart-container">
+        <canvas id="impactChart"></canvas>
       </div>
     </div>
   </div>
 
-  <script>
-    let impactChart = null;
+<script>
+let impactChart = null;
+let isEditingNames = false;
+let timer = null;
 
-    const params = new URLSearchParams(window.location.search);
-    let currentMatchId = params.get('matchId') || null;
+const params = new URLSearchParams(window.location.search);
+let currentMatchId = params.get('matchId') || null;
 
-    const listView = document.getElementById('listView');
-    const matchView = document.getElementById('matchView');
-    const matchesList = document.getElementById('matchesList');
-    const matchesListEmpty = document.getElementById('matchesListEmpty');
+const listView = document.getElementById('listView');
+const matchView = document.getElementById('matchView');
+const matchesList = document.getElementById('matchesList');
+const matchesListEmpty = document.getElementById('matchesListEmpty');
 
-    const statusEl = document.getElementById('status');
-    const team1NameEl = document.getElementById('team1Name');
-    const team2NameEl = document.getElementById('team2Name');
-    const team1SetsEl = document.getElementById('team1Sets');
-    const team2SetsEl = document.getElementById('team2Sets');
-    const team1PointsEl = document.getElementById('team1Points');
-    const team2PointsEl = document.getElementById('team2Points');
-    const team1ServerDot = document.getElementById('team1ServerDot');
-    const team2ServerDot = document.getElementById('team2ServerDot');
+const statusEl = document.getElementById('status');
+const team1NameEl = document.getElementById('team1Name');
+const team2NameEl = document.getElementById('team2Name');
+const team1SetsEl = document.getElementById('team1Sets');
+const team2SetsEl = document.getElementById('team2Sets');
+const team1PointsEl = document.getElementById('team1Points');
+const team2PointsEl = document.getElementById('team2Points');
+const team1ServerDot = document.getElementById('team1ServerDot');
+const team2ServerDot = document.getElementById('team2ServerDot');
 
-    const namesForm = document.getElementById('namesForm');
-    const t1p1Input = document.getElementById('t1p1');
-    const t1p2Input = document.getElementById('t1p2');
-    const t2p1Input = document.getElementById('t2p1');
-    const t2p2Input = document.getElementById('t2p2');
+const namesForm = document.getElementById('namesForm');
+const t1p1Input = document.getElementById('t1p1');
+const t1p2Input = document.getElementById('t1p2');
+const t2p1Input = document.getElementById('t2p1');
+const t2p2Input = document.getElementById('t2p2');
 
-    const matchLabelEl = document.getElementById('matchLabel');
-    const scoreSummaryEl = document.getElementById('scoreSummary');
-    const updatedAtEl = document.getElementById('updatedAt');
-    const statsEl = document.getElementById('stats');
+const matchLabelEl = document.getElementById('matchLabel');
+const scoreSummaryEl = document.getElementById('scoreSummary');
+const updatedAtEl = document.getElementById('updatedAt');
+const statsEl = document.getElementById('stats');
 
-    let timer = null;
-    let isEditingNames = false;
+function showList() {
+  listView.style.display = 'block';
+  matchView.style.display = 'none';
+}
+function showMatch() {
+  listView.style.display = 'none';
+  matchView.style.display = 'block';
+}
 
-    function showListView() {
-      listView.style.display = 'block';
-      matchView.style.display = 'none';
+function stopPolling() {
+  if (timer) clearInterval(timer);
+  timer = null;
+}
+
+function startPolling(id) {
+  stopPolling();
+  async function poll() {
+    if (!isEditingNames) fetchMatch(id);
+  }
+  poll();
+  timer = setInterval(poll, 2000);
+}
+
+async function fetchMatch(id) {
+  try {
+    const res = await fetch('/api/match/' + encodeURIComponent(id));
+    if (!res.ok) return;
+
+    const data = await res.json();
+
+    // scoreboard
+    matchLabelEl.textContent = id;
+    statusEl.textContent = "Match " + id;
+
+    const players = data.players || [];
+
+    team1NameEl.textContent = (players[0]?.name + "/" + players[1]?.name).toUpperCase();
+    team2NameEl.textContent = (players[2]?.name + "/" + players[3]?.name).toUpperCase();
+
+    if (!isEditingNames && players.length === 4) {
+      t1p1Input.value = players[0].name;
+      t1p2Input.value = players[1].name;
+      t2p1Input.value = players[2].name;
+      t2p2Input.value = players[3].name;
     }
 
-    function showMatchView() {
-      listView.style.display = 'none';
-      matchView.style.display = 'block';
+    team1SetsEl.textContent = data.sets?.team1 ?? "-";
+    team2SetsEl.textContent = data.sets?.team2 ?? "-";
+    team1PointsEl.textContent = data.points?.team1 ?? "0";
+    team2PointsEl.textContent = data.points?.team2 ?? "0";
+
+    team1ServerDot.style.display = data.server === 1 ? 'inline-block' : 'none';
+    team2ServerDot.style.display = data.server === 2 ? 'inline-block' : 'none';
+
+    scoreSummaryEl.textContent = `S ${data.sets.team1}-${data.sets.team2}  G ${data.games.team1}-${data.games.team2}  P ${data.points.team1}-${data.points.team2}`;
+
+    updatedAtEl.textContent = data.updatedAt ? new Date(data.updatedAt).toLocaleTimeString() : "";
+
+    statsEl.textContent = JSON.stringify({
+      games: data.games,
+      playerStats: data.playerStats
+    }, null, 2);
+
+    updateImpactChart(data.timeline || []);
+
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function fetchList() {
+  try {
+    const res = await fetch('/api/matches');
+    if (!res.ok) return;
+    const list = await res.json();
+
+    matchesList.innerHTML = "";
+    if (!list.length) {
+      matchesListEmpty.style.display = 'block';
+      return;
     }
 
-    function stopPolling() {
-      if (timer) {
-        clearInterval(timer);
-        timer = null;
-      }
-    }
-
-    function startPolling(matchId) {
-      currentMatchId = matchId;
-      stopPolling();
-
-      async function poll() {
-        if (!isEditingNames) {
-          await fetchMatch(matchId);
-        }
-      }
-
-      poll();
-      timer = setInterval(poll, 3000);
-    }
-
-    function makeScoreSummary(data) {
-      const sets = data.sets || {};
-      const games = data.games || {};
-      const points = data.points || {};
-
-      const setStr =
-        sets.team1 !== undefined && sets.team2 !== undefined
-          ? `${sets.team1}-${sets.team2}`
-          : '-';
-      const gameStr =
-        games.team1 !== undefined && games.team2 !== undefined
-          ? `${games.team1}-${games.team2}`
-          : '-';
-      const pointStr =
-        points.team1 !== undefined && points.team2 !== undefined
-          ? `${points.team1}-${points.team2}`
-          : '-';
-
-      return `S ${setStr}  G ${gameStr}  P ${pointStr}`;
-    }
-
-    async function fetchMatch(matchId) {
-      try {
-        const res = await fetch(`/api/match/${encodeURIComponent(matchId)}`);
-        if (!res.ok) {
-          statusEl.textContent = `Error: ${res.status}`;
-          statusEl.className = 'status error';
-          return;
-        }
-
-        const data = await res.json();
-        statusEl.textContent = `Match: ${matchId}`;
-        statusEl.className = 'status';
-        matchLabelEl.textContent = matchId;
-
-        // names
-        const players = data.players || [];
-        let team1Name = 'Team 1';
-        let team2Name = 'Team 2';
-        if (players.length >= 4) {
-          team1Name = `${players[0].name || 'P1'}/${players[1].name || 'P2'}`;
-          team2Name = `${players[2].name || 'P3'}/${players[3].name || 'P4'}`;
-        }
-        team1NameEl.textContent = team1Name.toUpperCase();
-        team2NameEl.textContent = team2Name.toUpperCase();
-
-        if (!isEditingNames && players.length >= 4 && namesForm.style.display !== 'none') {
-          t1p1Input.value = players[0].name || '';
-          t1p2Input.value = players[1].name || '';
-          t2p1Input.value = players[2].name || '';
-          t2p2Input.value = players[3].name || '';
-        }
-
-        // sets
-        const sets = data.sets || {};
-        team1SetsEl.textContent =
-          sets.team1 !== undefined ? sets.team1 : '-';
-        team2SetsEl.textContent =
-          sets.team2 !== undefined ? sets.team2 : '-';
-
-        // points
-        const points = data.points || {};
-        team1PointsEl.textContent =
-          points.team1 !== undefined ? points.team1 : '0';
-        team2PointsEl.textContent =
-          points.team2 !== undefined ? points.team2 : '0';
-
-        // server
-        team1ServerDot.style.display = 'none';
-        team2ServerDot.style.display = 'none';
-        if (data.server === 1) team1ServerDot.style.display = 'inline-block';
-        if (data.server === 2) team2ServerDot.style.display = 'inline-block';
-
-        // debug summary
-        const games = data.games || {};
-        scoreSummaryEl.textContent = makeScoreSummary(data);
-
-        if (data.updatedAt) {
-          const dt = new Date(data.updatedAt);
-          updatedAtEl.textContent = dt.toLocaleTimeString();
-        } else {
-          updatedAtEl.textContent = '';
-        }
-
-        const debug = {
-          games,
-          playerStats: data.playerStats || []
-        };
-        statsEl.textContent = JSON.stringify(debug, null, 2);
-        updateImpactChart(data.timeline || []);
-
-      } catch (err) {
-        statusEl.textContent = `Fetch error: ${err.message}`;
-        statusEl.className = 'status error';
-      }
-    }
-
-    async function fetchMatchesList() {
-      try {
-        const res = await fetch('/api/matches');
-        if (!res.ok) return;
-        const list = await res.json();
-
-        matchesList.innerHTML = '';
-        if (!list.length) {
-          matchesListEmpty.style.display = 'block';
-          return;
-        }
-        matchesListEmpty.style.display = 'none';
-
-        list.forEach(m => {
-          const card = document.createElement('div');
-          card.className = 'match-card';
-
-          const link = document.createElement('a');
-          link.href = `?matchId=${encodeURIComponent(m.matchId)}`;
-          link.textContent = m.matchId;
-
-          const small = document.createElement('small');
-          small.textContent = m.score || 'no score yet';
-
-          card.appendChild(link);
-          card.appendChild(small);
-          matchesList.appendChild(card);
-        });
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    // Pause polling while editing names
-    namesForm.addEventListener('focusin', () => {
-      isEditingNames = true;
+    matchesListEmpty.style.display = 'none';
+    list.forEach(m => {
+      const div = document.createElement('div');
+      div.className = 'match-card';
+      div.innerHTML = `
+        <a href="?matchId=${m.matchId}">${m.matchId}</a>
+        <small>${m.score}</small>
+      `;
+      matchesList.appendChild(div);
     });
-    namesForm.addEventListener('focusout', () => {
-      setTimeout(() => {
-        if (!namesForm.contains(document.activeElement)) {
-          isEditingNames = false;
-        }
-      }, 0);
-    });
+  } catch {}
+}
 
-    namesForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (!currentMatchId) return;
+namesForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
 
-      const body = {
-        team1: { p1: t1p1Input.value, p2: t1p2Input.value },
-        team2: { p1: t2p1Input.value, p2: t2p2Input.value }
-      };
+  const body = {
+    team1: { p1: t1p1Input.value, p2: t1p2Input.value },
+    team2: { p1: t2p1Input.value, p2: t2p2Input.value }
+  };
 
-      try {
-        await fetch(`/api/match/${encodeURIComponent(currentMatchId)}/players`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        isEditingNames = false;
-        // hide form after names set once
-        namesForm.style.display = 'none';
-        startPolling(currentMatchId);
-      } catch (e2) {
-        console.error(e2);
-      }
-    });
+  await fetch(`/api/match/${encodeURIComponent(currentMatchId)}/players`, {
+    method: 'POST',
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
 
-    // initial routing
-    if (currentMatchId) {
-      showMatchView();
-      startPolling(currentMatchId);
-    } else {
-      showListView();
-      fetchMatchesList();
-      setInterval(fetchMatchesList, 10000);
-    }
+  namesForm.style.display = 'none';
+  isEditingNames = false;
+});
+
+namesForm.addEventListener('focusin', () => isEditingNames = true);
+namesForm.addEventListener('focusout', () => {
+  setTimeout(() => {
+    if (!namesForm.contains(document.activeElement)) isEditingNames = false;
+  }, 50);
+});
 
 function updateImpactChart(timeline) {
-  const canvas = document.getElementById('impactChart');
-  if (!canvas) return;
-
-  if (!timeline || !timeline.length) {
-    // If no data, wipe chart
-    if (impactChart) {
-      impactChart.destroy();
-      impactChart = null;
-    }
+  const ctx = document.getElementById('impactChart').getContext('2d');
+  if (!timeline.length) {
+    if (impactChart) impactChart.destroy();
+    impactChart = null;
     return;
   }
 
-  // x = 1..N (point index)
-  const labels = timeline.map((_, idx) => idx + 1);
-
-  // Assume up to 4 players; if fewer, it still works
-  const playerCount = Math.max(...timeline.map(s => (s.diff ? s.diff.length : 0)));
+  const labels = timeline.map((_, i) => i + 1);
+  const playerCount = Math.max(...timeline.map(s => s.diff.length));
 
   const datasets = [];
-  for (let p = 0; p < playerCount; p++) {
-    const data = timeline.map(s => (s.diff && s.diff[p] != null ? s.diff[p] : 0));
-
+  for (let i = 0; i < playerCount; i++) {
     datasets.push({
-      label: `Player ${p + 1}`,
-      data,
-      tension: 0.3,
+      label: `Player ${i + 1}`,
+      data: timeline.map(s => s.diff[i]),
       borderWidth: 2,
+      tension: 0.3,
       fill: false
-      // colors left default per instructions
     });
   }
 
@@ -662,29 +521,20 @@ function updateImpactChart(timeline) {
     impactChart.data.datasets = datasets;
     impactChart.update();
   } else {
-    impactChart = new Chart(canvas.getContext('2d'), {
+    impactChart = new Chart(ctx, {
       type: 'line',
-      data: {
-        labels,
-        datasets
-      },
+      data: { labels, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            position: 'top',
-            labels: { color: '#f5f5f5' }
-          }
-        },
         scales: {
-          x: {
-            ticks: { color: '#f5f5f5' },
-            grid: { display: false }
-          },
           y: {
-            ticks: { color: '#f5f5f5' },
-            grid: { color: 'rgba(255,255,255,0.1)' }
+            suggestedMin: -5,
+            suggestedMax: 5,
+            ticks: { color: '#fff' }
+          },
+          x: {
+            ticks: { color: '#fff' }
           }
         }
       }
@@ -692,7 +542,15 @@ function updateImpactChart(timeline) {
   }
 }
 
-  </script>
+if (currentMatchId) {
+  showMatch();
+  startPolling(currentMatchId);
+} else {
+  showList();
+  fetchList();
+  setInterval(fetchList, 5000);
+}
+</script>
+
 </body>
 </html>
-
