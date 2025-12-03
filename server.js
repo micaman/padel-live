@@ -3,8 +3,7 @@ const path = require('path');
 
 const app = express();
 app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // <-- add this
-
+app.use(express.urlencoded({ extended: true }));
 
 // In-memory matches: matchId -> match object
 const matches = new Map();
@@ -18,7 +17,8 @@ function defaultPlayers() {
   ];
 }
 
-function getOrCreateMatch(matchId) {
+function getOrCreateMatch(matchIdRaw) {              // <<< take raw
+  const matchId = String(matchIdRaw);               // <<< always string
   let match = matches.get(matchId);
   if (!match) {
     match = {
@@ -31,6 +31,8 @@ function getOrCreateMatch(matchId) {
       players: defaultPlayers(),
       // stats from watch:
       playerStats: [],
+      // winners-errors timeline for chart:
+      timeline: [],                                  // <<<
       updatedAt: null,
     };
     matches.set(matchId, match);
@@ -72,14 +74,16 @@ app.post('/api/update', (req, res) => {
     }
   }
 
-  const { matchId, sets, games, points, server, players } = body;
+  const rawMatchId = body.matchId;                  // <<<
+  const { sets, games, points, server, players } = body;
 
-  if (!matchId || !points) {
+  if (!rawMatchId || !points) {
     return res
       .status(400)
       .json({ error: 'matchId and points are required in payload' });
   }
 
+  const matchId = String(rawMatchId);               // <<< force string
   const match = getOrCreateMatch(matchId);
 
   // Overwrite live state with latest snapshot from watch
@@ -111,6 +115,16 @@ app.post('/api/update', (req, res) => {
   // stats per player from watch (don’t touch name mapping)
   if (Array.isArray(players)) {
     match.playerStats = players;
+
+    // winners - errors per player for the chart             // <<<
+    const diff = players.map(p => {
+      const w = Number(p.winners || 0);
+      const e = Number(p.errors || 0);
+      return w - e;
+    });
+
+    const now = new Date().toISOString();
+    match.timeline.push({ t: now, diff });                   // <<<
   }
 
   match.updatedAt = new Date().toISOString();
@@ -120,7 +134,7 @@ app.post('/api/update', (req, res) => {
 
 // Get single match data (for match page)
 app.get('/api/match/:id', (req, res) => {
-  const matchId = req.params.id;
+  const matchId = String(req.params.id);           // <<< ensure string
   const match = matches.get(matchId);
 
   if (!match) {
@@ -147,7 +161,7 @@ app.get('/api/matches', (req, res) => {
 
 // Set player NAMES for a given match (from browser)
 app.post('/api/match/:id/players', (req, res) => {
-  const matchId = req.params.id;
+  const matchId = String(req.params.id);          // <<< just to be safe
   const { team1, team2 } = req.body || {};
 
   const match = getOrCreateMatch(matchId);
@@ -176,4 +190,3 @@ const port = process.env.PORT || 10000;
 app.listen(port, () => {
   console.log(`Listening on ${port}`);
 });
-
