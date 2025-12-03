@@ -3,6 +3,8 @@ const path = require('path');
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // <-- add this
+
 
 // In-memory matches: matchId -> match object
 const matches = new Map();
@@ -59,7 +61,18 @@ function formatScoreSummary(m) {
 
 // Called by the watch
 app.post('/api/update', (req, res) => {
-  const { matchId, sets, games, points, server, players } = req.body || {};
+  let body = req.body || {};
+
+  // If watch sends payload=JSON_STRING, parse that
+  if (typeof body.payload === 'string') {
+    try {
+      body = JSON.parse(body.payload);
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid JSON in payload field' });
+    }
+  }
+
+  const { matchId, sets, games, points, server, players } = body;
 
   if (!matchId || !points) {
     return res
@@ -163,3 +176,4 @@ const port = process.env.PORT || 10000;
 app.listen(port, () => {
   console.log(`Listening on ${port}`);
 });
+
