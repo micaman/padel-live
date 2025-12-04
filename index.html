@@ -14,8 +14,6 @@
       --card-bg: #f5f5f5;
       --card-border: #d4d4d4;
       --team-text: #111217;
-      --set-bg: #111217;
-      --set-text: #ffffff;
       --point-top-bg: #f7c948;
       --point-bottom-bg: #cfcfcf;
       --point-text: #111217;
@@ -103,7 +101,7 @@
       border: 1px solid var(--card-border);
       border-radius: 6px;
       display: grid;
-      grid-template-columns: 44px 1fr 64px;
+      grid-template-columns: 44px 1fr auto 64px; /* icon | teams | sets (auto) | points */
       overflow: hidden;
       box-shadow: 0 6px 18px rgba(0,0,0,0.55);
     }
@@ -132,7 +130,7 @@
       padding: 0 10px;
       display: grid;
       grid-template-columns: 1fr auto;
-      align-items: stretch;       /* 🔥 let children stretch vertically */
+      align-items: stretch;
       min-height: 32px;
     }
 
@@ -149,37 +147,53 @@
       overflow: hidden;
       text-overflow: ellipsis;
       display: flex;
-      align-items: center; /* vertically center text */
+      align-items: center;
     }
 
     .team-meta {
       display: flex;
-      align-items: stretch;      /* 🔥 make children as tall as row */
+      align-items: center;
       justify-content: flex-end;
       gap: 4px;
-    }
-
-    .set-score-badge {
-      padding: 0 8px;            /* horizontal padding only */
-      background: var(--set-bg);
-      color: var(--set-text);
-      font-size: 11px;
-      font-weight: 700;
-      border-radius: 3px;
-      display: flex;             /* 🔥 center text inside full-height block */
-      align-items: center;
-      justify-content: center;
-      height: 100%;              /* 🔥 full height of parent (row) */
-      box-sizing: border-box;
     }
 
     .server-dot {
       width: 7px; height: 7px;
       border-radius: 50%;
       background: var(--server-dot);
-      align-self: center;
     }
 
+    /* SET COLUMNS */
+    .sb-sets {
+      background: #f0f0f0;
+      border-left: 1px solid var(--card-border);
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 32px; /* each set column width */
+    }
+
+    .sb-set-col {
+      display: grid;
+      grid-template-rows: 1fr 1fr;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    .sb-set-top,
+    .sb-set-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .sb-set-bottom {
+      border-bottom: none;
+      border-top: 1px solid var(--card-border);
+    }
+
+    /* POINTS COLUMN */
     .sb-points {
       display: grid;
       grid-template-rows: 1fr 1fr;
@@ -253,11 +267,11 @@
       cursor: pointer;
     }
 
-    /* CHART FIX */
+    /* CHART */
     .chart-container {
       width: 100%;
-      height: 400px;
-      max-height: 400px;
+      height: 200px;
+      max-height: 200px;
       position: relative;
       overflow: hidden;
     }
@@ -299,18 +313,33 @@
             <div class="team-name" id="team1Name">TEAM 1</div>
             <div class="team-meta">
               <span class="server-dot" id="team1ServerDot" style="display:none;"></span>
-              <span class="set-score-badge" id="team1Sets">-</span>
             </div>
           </div>
           <div class="sb-row">
             <div class="team-name" id="team2Name">TEAM 2</div>
             <div class="team-meta">
               <span class="server-dot" id="team2ServerDot" style="display:none;"></span>
-              <span class="set-score-badge" id="team2Sets">-</span>
             </div>
           </div>
         </div>
 
+        <!-- SETS COLUMNS -->
+        <div class="sb-sets">
+          <div class="sb-set-col">
+            <div class="sb-set-top" id="set1T1">-</div>
+            <div class="sb-set-bottom" id="set1T2">-</div>
+          </div>
+          <div class="sb-set-col">
+            <div class="sb-set-top" id="set2T1">-</div>
+            <div class="sb-set-bottom" id="set2T2">-</div>
+          </div>
+          <div class="sb-set-col">
+            <div class="sb-set-top" id="set3T1">-</div>
+            <div class="sb-set-bottom" id="set3T2">-</div>
+          </div>
+        </div>
+
+        <!-- POINTS COLUMN -->
         <div class="sb-points">
           <div class="sb-point-top" id="team1Points">0</div>
           <div class="sb-point-bottom" id="team2Points">0</div>
@@ -377,12 +406,26 @@ const matchesListEmpty = document.getElementById('matchesListEmpty');
 const statusEl = document.getElementById('status');
 const team1NameEl = document.getElementById('team1Name');
 const team2NameEl = document.getElementById('team2Name');
-const team1SetsEl = document.getElementById('team1Sets');
-const team2SetsEl = document.getElementById('team2Sets');
 const team1PointsEl = document.getElementById('team1Points');
 const team2PointsEl = document.getElementById('team2Points');
 const team1ServerDot = document.getElementById('team1ServerDot');
 const team2ServerDot = document.getElementById('team2ServerDot');
+
+// set column cells
+const setCells = [
+  {
+    t1: document.getElementById('set1T1'),
+    t2: document.getElementById('set1T2'),
+  },
+  {
+    t1: document.getElementById('set2T1'),
+    t2: document.getElementById('set2T2'),
+  },
+  {
+    t1: document.getElementById('set3T1'),
+    t2: document.getElementById('set3T2'),
+  },
+];
 
 const namesForm = document.getElementById('namesForm');
 const t1p1Input = document.getElementById('t1p1');
@@ -415,20 +458,42 @@ function startPolling(id) {
     if (!isEditingNames) fetchMatch(id);
   }
   poll();
-  timer = setInterval(poll, 2000);
+  timer = setInterval(poll, 10000); // 🔥 10s refresh
+}
+
+// parse sets into an array of {team1, team2} for UI columns
+function parseSetsArray(data) {
+  const arr = [];
+  if (typeof data.setsString === 'string' && data.setsString.trim()) {
+    const parts = data.setsString.split('/').map(s => s.trim()).filter(Boolean);
+    for (const part of parts) {
+      const m = part.match(/(\d+)\s*-\s*(\d+)/);
+      if (m) {
+        arr.push({ team1: m[1], team2: m[2] });
+      }
+    }
+    if (arr.length) return arr;
+  }
+  const setsObj = data.sets || {};
+  if (setsObj.team1 !== undefined || setsObj.team2 !== undefined) {
+    arr.push({
+      team1: setsObj.team1 ?? '-',
+      team2: setsObj.team2 ?? '-'
+    });
+  }
+  return arr;
 }
 
 async function fetchMatch(id) {
   try {
     const res = await fetch('/api/match/' + encodeURIComponent(id));
     if (!res.ok) return;
-
     const data = await res.json();
+
     statusEl.textContent = "Match " + id;
     matchLabelEl.textContent = id;
 
-    // Safe access to sets/games/points
-    const sets = data.sets || {};
+    const setsArr = parseSetsArray(data);
     const games = data.games || {};
     const points = data.points || {};
 
@@ -449,26 +514,36 @@ async function fetchMatch(id) {
       t2p2Input.value = t2n2;
     }
 
-    // sets badges 🔥 (these are the ones that weren't updating)
-    team1SetsEl.textContent = sets.team1 ?? "-";
-    team2SetsEl.textContent = sets.team2 ?? "-";
+    // update set columns (max 3)
+    for (let i = 0; i < setCells.length; i++) {
+      const col = setCells[i];
+      const s = setsArr[i];
+      if (s) {
+        col.t1.textContent = s.team1;
+        col.t2.textContent = s.team2;
+      } else {
+        col.t1.textContent = '-';
+        col.t2.textContent = '-';
+      }
+    }
 
     // points
     team1PointsEl.textContent = points.team1 ?? "0";
     team2PointsEl.textContent = points.team2 ?? "0";
 
-    // server
+    // server: data.server is team 1 or 2 from backend
     team1ServerDot.style.display = data.server === 1 ? 'inline-block' : 'none';
     team2ServerDot.style.display = data.server === 2 ? 'inline-block' : 'none';
 
     // summary text
-    const s1 = sets.team1 ?? "-";
-    const s2 = sets.team2 ?? "-";
+    const setsSummary =
+      data.setsString ||
+      (setsArr.length ? setsArr.map(s => `${s.team1}-${s.team2}`).join(' / ') : '-');
     const g1 = games.team1 ?? "-";
     const g2 = games.team2 ?? "-";
     const p1 = points.team1 ?? "-";
     const p2 = points.team2 ?? "-";
-    scoreSummaryEl.textContent = `S ${s1}-${s2}  G ${g1}-${g2}  P ${p1}-${p2}`;
+    scoreSummaryEl.textContent = `S ${setsSummary}  G ${g1}-${g2}  P ${p1}-${p2}`;
 
     updatedAtEl.textContent = data.updatedAt
       ? new Date(data.updatedAt).toLocaleTimeString()
@@ -526,7 +601,7 @@ namesForm.addEventListener('submit', async (e) => {
     body: JSON.stringify(body)
   });
 
-  namesForm.parentNode.style.display = 'none';
+  namesForm.style.display = 'none';
   isEditingNames = false;
 });
 
