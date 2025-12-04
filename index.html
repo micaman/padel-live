@@ -170,6 +170,7 @@
       display: grid;
       grid-auto-flow: column;
       grid-auto-columns: 32px; /* each set column width */
+      color: black;
     }
 
     .sb-set-col {
@@ -601,7 +602,7 @@ namesForm.addEventListener('submit', async (e) => {
     body: JSON.stringify(body)
   });
 
-  namesForm.style.display = 'none';
+  namesForm.parent.style.display = 'none';
   isEditingNames = false;
 });
 
@@ -687,3 +688,4 @@ if (currentMatchId) {
 
 </body>
 </html>
+
