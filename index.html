@@ -395,6 +395,8 @@
 let impactChart = null;
 let isEditingNames = false;
 let timer = null;
+  let currentMatchPlayers = [];
+
 
 const params = new URLSearchParams(window.location.search);
 let currentMatchId = params.get('matchId') || null;
@@ -500,6 +502,7 @@ async function fetchMatch(id) {
 
     // names
     const p = data.players || [];
+    currentMatchPlayers = p;
     const t1n1 = p[0]?.name || 'Team 1 - P1';
     const t1n2 = p[1]?.name || 'Team 1 - P2';
     const t2n1 = p[2]?.name || 'Team 2 - P1';
@@ -633,15 +636,22 @@ function updateImpactChart(timeline) {
   const playerCount = Math.max(...timeline.map(s => (s.diff || []).length));
   const datasets = [];
 
-  for (let i = 0; i < playerCount; i++) {
-    datasets.push({
-      label: `Player ${i + 1}`,
-      data: timeline.map(s => (s.diff && s.diff[i] != null ? s.diff[i] : 0)),
-      borderWidth: 2,
-      tension: 0.3,
-      fill: false
-    });
-  }
+// Use player names if available
+const names = (currentMatchPlayers || []).map(p => p.name);
+
+// Create datasets
+for (let i = 0; i < playerCount; i++) {
+  const label = names[i] ? names[i].toUpperCase() : `PLAYER ${i + 1}`;
+
+  datasets.push({
+    label,
+    data: timeline.map(s => (s.diff && s.diff[i] != null ? s.diff[i] : 0)),
+    borderWidth: 2,
+    tension: 0.3,
+    fill: false
+  });
+}
+
 
   if (impactChart) {
     impactChart.data.labels = labels;
@@ -688,5 +698,6 @@ if (currentMatchId) {
 
 </body>
 </html>
+
 
 
