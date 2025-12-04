@@ -17,22 +17,59 @@ function defaultPlayers() {
   ];
 }
 
-function getOrCreateMatch(matchIdRaw) {              // <<< take raw
-  const matchId = String(matchIdRaw);               // <<< always string
+// derive sets won per team from a string like "6-0 / 1-0"
+function deriveSetCountsFromString(setsString) {
+  let team1 = 0;
+  let team2 = 0;
+  if (!setsString || typeof setsString !== 'string') {
+    return { team1, team2 };
+  }
+
+  const parts = setsString.split('/').map(s => s.trim()).filter(Boolean);
+
+  for (const part of parts) {
+    const m = part.match(/(\d+)\s*-\s*(\d+)/);
+    if (!m) continue;
+
+    const a = parseInt(m[1], 10);
+    const b = parseInt(m[2], 10);
+    if (Number.isNaN(a) || Number.isNaN(b)) continue;
+
+    const max = Math.max(a, b);
+    const diff = Math.abs(a - b);
+
+    // padel/tennis-style: set is "finished" if someone reached 6+ with 2+ diff
+    if (max >= 6 && diff >= 2) {
+      if (a > b) team1++;
+      else if (b > a) team2++;
+    }
+  }
+
+  return { team1, team2 };
+}
+
+function getOrCreateMatch(matchIdRaw) {
+  const matchId = String(matchIdRaw);
   let match = matches.get(matchId);
   if (!match) {
     match = {
       matchId,
+      // numeric "sets won" used by UI badges
       sets: { team1: 0, team2: 0 },
+      // raw string from watch, e.g. "6-0 / 1-0"
+      setsString: '0-0',
       games: { team1: 0, team2: 0 },
       points: { team1: '0', team2: '0' },
+      // team-level server (1 = top, 2 = bottom)
       server: null,
+      // player-level server index from watch, 1..4
+      serverPlayer: null,
       // names edited from browser:
       players: defaultPlayers(),
       // stats from watch:
       playerStats: [],
-      // winners-errors timeline for chart:
-      timeline: [],                                  // <<<
+      // timeline for winners−errors chart
+      timeline: [],
       updatedAt: null,
     };
     matches.set(matchId, match);
@@ -41,24 +78,29 @@ function getOrCreateMatch(matchIdRaw) {              // <<< take raw
 }
 
 function formatScoreSummary(m) {
-  const sets = m.sets || {};
-  const games = m.games || {};
   const points = m.points || {};
+  const games = m.games || {};
+  const setStr = m.setsString ||
+    (m.sets && m.sets.team1 !== undefined && m.sets.team2 !== undefined
+      ? `${m.sets.team1}-${m.sets.team2}`
+      : '-');
 
-  const setStr =
-    sets.team1 !== undefined && sets.team2 !== undefined
-      ? `${sets.team1}-${sets.team2}`
-      : '-';
-  const gameStr =
-    games.team1 !== undefined && games.team2 !== undefined
-      ? `${games.team1}-${games.team2}`
-      : '-';
   const pointStr =
     points.team1 !== undefined && points.team2 !== undefined
       ? `${points.team1}-${points.team2}`
-      : '-';
+      : '';
 
-  return `S ${setStr}  G ${gameStr}  P ${pointStr}`;
+  const gameStr =
+    games.team1 !== undefined && games.team2 !== undefined
+      ? `${games.team1}-${games.team2}`
+      : '';
+
+  const parts = [];
+  if (setStr) parts.push(`S ${setStr}`);
+  if (gameStr) parts.push(`G ${gameStr}`);
+  if (pointStr) parts.push(`P ${pointStr}`);
+
+  return parts.join('  ');
 }
 
 // Called by the watch
@@ -74,8 +116,9 @@ app.post('/api/update', (req, res) => {
     }
   }
 
-  const rawMatchId = body.matchId;                  // <<<
-  const { sets, games, points, server, players } = body;
+  const rawMatchId = body.matchId;
+  const { games, points, players } = body;
+  let { sets, server } = body;
 
   if (!rawMatchId || !points) {
     return res
@@ -83,17 +126,22 @@ app.post('/api/update', (req, res) => {
       .json({ error: 'matchId and points are required in payload' });
   }
 
-  const matchId = String(rawMatchId);               // <<< force string
+  const matchId = String(rawMatchId);
   const match = getOrCreateMatch(matchId);
 
-  // Overwrite live state with latest snapshot from watch
-  if (sets && typeof sets === 'object') {
+  // --- sets: can be string ("6-0 / 1-0") or object {team1,team2} ---
+  if (typeof sets === 'string') {
+    match.setsString = sets.trim();
+    match.sets = deriveSetCountsFromString(match.setsString);
+  } else if (sets && typeof sets === 'object') {
     match.sets = {
       team1: sets.team1 ?? match.sets.team1,
       team2: sets.team2 ?? match.sets.team2,
     };
+    match.setsString = `${match.sets.team1}-${match.sets.team2}`;
   }
 
+  // games optional in new format
   if (games && typeof games === 'object') {
     match.games = {
       team1: games.team1 ?? match.games.team1,
@@ -108,15 +156,29 @@ app.post('/api/update', (req, res) => {
     };
   }
 
+  // --- server: team or player index ---
   if (typeof server === 'number') {
-    match.server = server;
+    match.serverPlayer = server;
+
+    let serverTeam = null;
+    if (server >= 1 && server <= 4) {
+      // players 1,2 = team1; 3,4 = team2
+      serverTeam = server <= 2 ? 1 : 2;
+    } else if (server === 1 || server === 2) {
+      // fallback: server already expressed as team
+      serverTeam = server;
+    }
+
+    if (serverTeam === 1 || serverTeam === 2) {
+      match.server = serverTeam;
+    }
   }
 
-  // stats per player from watch (don’t touch name mapping)
+  // stats per player from watch
   if (Array.isArray(players)) {
     match.playerStats = players;
 
-    // winners - errors per player for the chart             // <<<
+    // winners - errors per player for chart
     const diff = players.map(p => {
       const w = Number(p.winners || 0);
       const e = Number(p.errors || 0);
@@ -124,7 +186,7 @@ app.post('/api/update', (req, res) => {
     });
 
     const now = new Date().toISOString();
-    match.timeline.push({ t: now, diff });                   // <<<
+    match.timeline.push({ t: now, diff });
   }
 
   match.updatedAt = new Date().toISOString();
@@ -134,7 +196,7 @@ app.post('/api/update', (req, res) => {
 
 // Get single match data (for match page)
 app.get('/api/match/:id', (req, res) => {
-  const matchId = String(req.params.id);           // <<< ensure string
+  const matchId = String(req.params.id);
   const match = matches.get(matchId);
 
   if (!match) {
@@ -161,7 +223,7 @@ app.get('/api/matches', (req, res) => {
 
 // Set player NAMES for a given match (from browser)
 app.post('/api/match/:id/players', (req, res) => {
-  const matchId = String(req.params.id);          // <<< just to be safe
+  const matchId = String(req.params.id);
   const { team1, team2 } = req.body || {};
 
   const match = getOrCreateMatch(matchId);
