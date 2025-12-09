@@ -246,8 +246,7 @@ app.post('/api/update', async (req, res) => {
         match.points && match.points.team2 != null
           ? String(match.points.team2)
           : null,
-      server_team:
-        typeof match.server === 'number' ? match.server : null,
+      server_team: typeof match.server === 'number' ? match.server : null,
       server_player:
         typeof match.serverPlayer === 'number' ? match.serverPlayer : null,
     };
@@ -265,7 +264,7 @@ app.post('/api/update', async (req, res) => {
   return res.json({ ok: true });
 });
 
-// Get single match data (for match page)
+// Get single match data (for match page, last snapshot)
 app.get('/api/match/:id', (req, res) => {
   const matchId = String(req.params.id);
   const match = matches.get(matchId);
@@ -277,12 +276,57 @@ app.get('/api/match/:id', (req, res) => {
   return res.json(match);
 });
 
+// Full history from DB for viewer
+app.get('/api/match/:id/history', async (req, res) => {
+  const matchId = String(req.params.id);
+
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  try {
+    // all events for this match, oldest first
+    const { data: events, error } = await supabase
+      .from('watch_events')
+      .select('id, raw, watch_timestamp, received_at')
+      .eq('match_id', matchId)
+      .order('watch_timestamp', { ascending: true, nullsFirst: true })
+      .order('id', { ascending: true });
+
+    if (error) {
+      console.error('Supabase watch_events select error:', error);
+      return res.status(500).json({ error: 'Failed to load history' });
+    }
+
+    const snapshots = (events || []).map((e) => e.raw);
+
+    // player names (if set)
+    const { data: players, error: pErr } = await supabase
+      .from('match_players')
+      .select('team, slot, name')
+      .eq('match_id', matchId)
+      .order('team', { ascending: true })
+      .order('slot', { ascending: true });
+
+    if (pErr) {
+      console.error('Supabase match_players select error:', pErr);
+    }
+
+    return res.json({
+      matchId,
+      snapshots,
+      players: players || [],
+    });
+  } catch (e) {
+    console.error('Supabase /api/match/:id/history exception:', e);
+    return res.status(500).json({ error: 'Unexpected error' });
+  }
+});
+
 // List matches for home page
 app.get('/api/matches', (req, res) => {
   const list = Array.from(matches.values())
-    .sort(
-      (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)
-    )
+    .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
     .map((m) => ({
       matchId: m.matchId,
       score: formatScoreSummary(m),
@@ -336,9 +380,14 @@ app.post('/api/match/:id/players', async (req, res) => {
   return res.json({ ok: true, players: match.players });
 });
 
-// Frontend
+// Home page (you can keep your existing index.html / list of matches)
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Match viewer page: /match/6813, etc.
+app.get('/match/:id', (req, res) => {
+  res.sendFile(path.join(__dirname, 'match.html'));
 });
 
 const port = process.env.PORT || 10000;
