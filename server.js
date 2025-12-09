@@ -6,6 +6,9 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Serve static files from /public
+app.use(express.static(path.join(__dirname, 'public')));
+
 // --- Supabase setup ---
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey =
@@ -20,7 +23,7 @@ if (!supabase) {
   );
 }
 
-// In-memory matches: matchId -> match object
+// In-memory matches: matchId -> match object (for live view, not persistence)
 const matches = new Map();
 
 function defaultPlayers() {
@@ -72,21 +75,14 @@ function getOrCreateMatch(matchIdRaw) {
   if (!match) {
     match = {
       matchId,
-      // numeric "sets won" used by UI badges
       sets: { team1: 0, team2: 0 },
-      // raw string from watch, e.g. "6-0 / 1-0"
       setsString: '0-0',
       games: { team1: 0, team2: 0 },
       points: { team1: '0', team2: '0' },
-      // team-level server (1 = top, 2 = bottom)
-      server: null,
-      // player-level server index from watch, 1..4
-      serverPlayer: null,
-      // names edited from browser:
+      server: null,       // team-level server
+      serverPlayer: null, // player index 1..4
       players: defaultPlayers(),
-      // stats from watch:
       playerStats: [],
-      // timeline for winners−errors chart
       timeline: [],
       updatedAt: null,
     };
@@ -122,7 +118,43 @@ function formatScoreSummary(m) {
   return parts.join('  ');
 }
 
-// Called by the watch
+// helper: summary from DB raw payload
+function summaryFromRaw(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return { score: '', setsString: '' };
+  }
+
+  let setsString = '';
+  let sets = { team1: 0, team2: 0 };
+
+  if (typeof raw.sets === 'string') {
+    setsString = raw.sets.trim();
+    sets = deriveSetCountsFromString(setsString);
+  } else if (raw.sets && typeof raw.sets === 'object') {
+    sets = {
+      team1: raw.sets.team1 ?? 0,
+      team2: raw.sets.team2 ?? 0,
+    };
+    setsString = `${sets.team1}-${sets.team2}`;
+  }
+
+  const games = raw.games || {};
+  const points = raw.points || {};
+
+  const matchLike = {
+    setsString,
+    sets,
+    games,
+    points,
+  };
+
+  return {
+    score: formatScoreSummary(matchLike),
+    setsString,
+  };
+}
+
+// Called by the watch (live + DB logging)
 app.post('/api/update', async (req, res) => {
   let body = req.body || {};
 
@@ -264,7 +296,7 @@ app.post('/api/update', async (req, res) => {
   return res.json({ ok: true });
 });
 
-// Get single match data (for match page, last snapshot)
+// Get single match data (current live snapshot in memory)
 app.get('/api/match/:id', (req, res) => {
   const matchId = String(req.params.id);
   const match = matches.get(matchId);
@@ -285,7 +317,6 @@ app.get('/api/match/:id/history', async (req, res) => {
   }
 
   try {
-    // all events for this match, oldest first
     const { data: events, error } = await supabase
       .from('watch_events')
       .select('id, raw, watch_timestamp, received_at')
@@ -300,7 +331,6 @@ app.get('/api/match/:id/history', async (req, res) => {
 
     const snapshots = (events || []).map((e) => e.raw);
 
-    // player names (if set)
     const { data: players, error: pErr } = await supabase
       .from('match_players')
       .select('team, slot, name')
@@ -323,20 +353,68 @@ app.get('/api/match/:id/history', async (req, res) => {
   }
 });
 
-// List matches for home page
-app.get('/api/matches', (req, res) => {
-  const list = Array.from(matches.values())
-    .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
-    .map((m) => ({
-      matchId: m.matchId,
-      score: formatScoreSummary(m),
-      updatedAt: m.updatedAt,
-    }));
+// List matches from DB (for index page)
+app.get('/api/db-matches', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
 
-  res.json(list);
+  try {
+    const { data: events, error } = await supabase
+      .from('watch_events')
+      .select('id, match_id, raw, watch_timestamp, received_at')
+      .order('match_id', { ascending: true })
+      .order('watch_timestamp', { ascending: true, nullsFirst: true })
+      .order('id', { ascending: true });
+
+    if (error) {
+      console.error('Supabase db-matches select error:', error);
+      return res.status(500).json({ error: 'Failed to load matches' });
+    }
+
+    const byMatch = new Map();
+
+    for (const e of events || []) {
+      const raw = e.raw || {};
+      const mid = String(raw.matchId || e.match_id);
+      const ts = e.watch_timestamp || e.received_at || null;
+
+      const existing = byMatch.get(mid);
+      if (!existing) {
+        byMatch.set(mid, { lastEvent: e, lastTs: ts });
+      } else {
+        if (ts && (!existing.lastTs || new Date(ts) > new Date(existing.lastTs))) {
+          byMatch.set(mid, { lastEvent: e, lastTs: ts });
+        }
+      }
+    }
+
+    const list = Array.from(byMatch.entries()).map(([matchId, { lastEvent, lastTs }]) => {
+      const raw = lastEvent.raw || {};
+      const { score, setsString } = summaryFromRaw(raw);
+      return {
+        matchId,
+        score,
+        setsString,
+        lastTimestamp: lastTs,
+        eventsCount: events.filter((e) => String(e.match_id) === matchId).length,
+      };
+    });
+
+    list.sort((a, b) => {
+      const ta = a.lastTimestamp ? new Date(a.lastTimestamp).getTime() : 0;
+      const tb = b.lastTimestamp ? new Date(b.lastTimestamp).getTime() : 0;
+      return tb - ta;
+    });
+
+    return res.json(list);
+  } catch (e) {
+    console.error('Supabase /api/db-matches exception:', e);
+    return res.status(500).json({ error: 'Unexpected error' });
+  }
 });
 
-// Set player NAMES for a given match (from browser)
+// Set player NAMES for a given match (from viewer)
 app.post('/api/match/:id/players', async (req, res) => {
   const matchId = String(req.params.id);
   const { team1, team2 } = req.body || {};
@@ -355,7 +433,6 @@ app.post('/api/match/:id/players', async (req, res) => {
     { id: 't2p2', team: 2, name: t2p2 },
   ];
 
-  // Persist to Supabase
   if (supabase) {
     const rows = [
       { match_id: matchId, team: 1, slot: 1, name: t1p1 },
@@ -380,14 +457,14 @@ app.post('/api/match/:id/players', async (req, res) => {
   return res.json({ ok: true, players: match.players });
 });
 
-// Home page (you can keep your existing index.html / list of matches)
+// Index page: list matches
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Match viewer page: /match/6813, etc.
+// Match viewer page: /match/6813
 app.get('/match/:id', (req, res) => {
-  res.sendFile(path.join(__dirname, 'match.html'));
+  res.sendFile(path.join(__dirname, 'public', 'match.html'));
 });
 
 const port = process.env.PORT || 10000;
