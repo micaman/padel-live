@@ -376,6 +376,11 @@
         </div>
       </div>
 
+      <div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center;">
+        <button id="editNamesBtn">Edit names</button>
+        <button id="addNoteBtn">Add note</button>
+      </div>
+
       <!-- NAMES + DEBUG PANEL -->
       <div class="panel" id="namesPanel">
         <h3>Player Names</h3>
@@ -406,6 +411,12 @@
           <strong>Payload:</strong>
           <pre id="lastPayloadDebug"></pre>
         </div>
+      </div>
+
+      <!-- NOTE PANEL -->
+      <div class="panel" id="notePanel">
+        <h3>Match Note</h3>
+        <div id="noteDisplay" style="font-size:13px;white-space:pre-wrap;min-height:1em;"></div>
       </div>
 
       <!-- TEAM STATS -->
@@ -511,6 +522,39 @@ const statsTableBody = document.getElementById('statsTableBody');
 const playerStatsBody = document.getElementById('playerStatsBody');
 const timeStatsBody = document.getElementById('timeStatsBody');
 
+const editNamesBtn = document.getElementById('editNamesBtn');
+const addNoteBtn = document.getElementById('addNoteBtn');
+const notePanel = document.getElementById('notePanel');
+const noteDisplay = document.getElementById('noteDisplay');
+
+editNamesBtn.addEventListener('click', () => {
+  if (!namesPanel) return;
+  const isHidden =
+    namesPanel.style.display === 'none' ||
+    getComputedStyle(namesPanel).display === 'none';
+  namesPanel.style.display = isHidden ? 'block' : 'none';
+});
+
+addNoteBtn.addEventListener('click', async () => {
+  if (!currentMatchId) return;
+  const current = noteDisplay.textContent || '';
+  const text = window.prompt('Match note:', current);
+  if (text === null) return; // cancelled
+
+  noteDisplay.textContent = text;
+
+  try {
+    await fetch(`/api/match/${currentMatchId}/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: text }),
+    });
+  } catch (e) {
+    console.error('Failed to save note:', e);
+  }
+});
+
+
 /* --------- AUTO LOAD FROM SERVER BY MATCH ID ---------- */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -556,21 +600,22 @@ async function autoLoadFromServer(matchId) {
         byKey['2-2'] || currentNames[3],
       ];
 
-      // names are already known for this match → hide panel
-      if (namesPanel) {
-        namesPanel.style.display = 'none';
-      }
+      if (namesPanel) namesPanel.style.display = 'none';
     } else {
-      // no names in DB yet → let user fill them in
-      if (namesPanel) {
-        namesPanel.style.display = 'block';
+      if (namesPanel) namesPanel.style.display = 'block';
+    }
+
+    // note
+    if (noteDisplay) {
+      noteDisplay.textContent = data.note || '';
+      if (data.note) {
+        addNoteBtn.textContent = 'Edit note';
       }
     }
 
     statusEl.textContent = `Loaded ${snapshots.length} payloads for match ${matchId}.`;
     mainView.style.display = 'block';
     inputPanel.style.display = 'none';
-
 
     if (snapshots.length > 1) {
       sliderRow.style.display = 'flex';
