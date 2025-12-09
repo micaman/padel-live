@@ -70,6 +70,14 @@
       border-color: #f7c948;
     }
 
+.match-note {
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.85;
+  white-space: pre-wrap;
+}
+
+
     .match-meta {
       display: flex;
       justify-content: space-between;
@@ -322,11 +330,26 @@ function createMatchCard(match) {
     </div>
 
     <div class="match-meta">
-      <span>#${match.matchId}</span>
       <span>${formatDate(match.lastTimestamp)}</span>
-      <span>${match.eventsCount || 0} pts</span>
+      <span>#${match.matchId}</span>
+    </div>
+
+    <div class="match-note">
+      ${match.note ? match.note.replace(/</g, "&lt;") : '<em>No note</em>'}
     </div>
   `;
+
+  // set team names from DB
+  const t1NameEl = card.querySelector('.team1Name');
+  const t2NameEl = card.querySelector('.team2Name');
+  t1NameEl.textContent = (match.team1Name || 'Team 1').toUpperCase();
+  t2NameEl.textContent = (match.team2Name || 'Team 2').toUpperCase();
+
+  // fill scoreboard from lastSnapshot
+  populateScoreboardFromSnapshot(card, match.lastSnapshot || {});
+  return card;
+}
+
 
   // set names from DB
   const t1NameEl = card.querySelector('.team1Name');
@@ -423,4 +446,5 @@ function createMatchCard(match) {
   </script>
 </body>
 </html>
+
 
