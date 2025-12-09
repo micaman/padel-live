@@ -350,18 +350,6 @@ function createMatchCard(match) {
   return card;
 }
 
-
-  // set names from DB
-  const t1NameEl = card.querySelector('.team1Name');
-  const t2NameEl = card.querySelector('.team2Name');
-  t1NameEl.textContent = (match.team1Name || 'Team 1').toUpperCase();
-  t2NameEl.textContent = (match.team2Name || 'Team 2').toUpperCase();
-
-  populateScoreboardFromSnapshot(card, match.lastSnapshot || {});
-  return card;
-}
-
-
     function populateScoreboardFromSnapshot(card, snap) {
       const team1PointsEl = card.querySelector('.team1Points');
       const team2PointsEl = card.querySelector('.team2Points');
@@ -446,5 +434,6 @@ function createMatchCard(match) {
   </script>
 </body>
 </html>
+
 
 
