@@ -555,11 +555,22 @@ async function autoLoadFromServer(matchId) {
         byKey['2-1'] || currentNames[2],
         byKey['2-2'] || currentNames[3],
       ];
+
+      // names are already known for this match → hide panel
+      if (namesPanel) {
+        namesPanel.style.display = 'none';
+      }
+    } else {
+      // no names in DB yet → let user fill them in
+      if (namesPanel) {
+        namesPanel.style.display = 'block';
+      }
     }
 
     statusEl.textContent = `Loaded ${snapshots.length} payloads for match ${matchId}.`;
     mainView.style.display = 'block';
     inputPanel.style.display = 'none';
+
 
     if (snapshots.length > 1) {
       sliderRow.style.display = 'flex';
