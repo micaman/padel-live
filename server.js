@@ -401,7 +401,6 @@ app.post('/api/match/:id/note', async (req, res) => {
   }
 });
 
-
 // List matches from DB (for index page)
 app.get('/api/db-matches', async (req, res) => {
   if (!supabase) {
@@ -453,9 +452,10 @@ app.get('/api/db-matches', async (req, res) => {
       };
     });
 
-    // fetch player names for all matchIds
     const matchIds = list.map((m) => m.matchId);
+
     if (matchIds.length) {
+      // player names
       const { data: players, error: pErr } = await supabase
         .from('match_players')
         .select('match_id, team, slot, name')
@@ -463,32 +463,48 @@ app.get('/api/db-matches', async (req, res) => {
 
       if (pErr) {
         console.error('Supabase match_players select error:', pErr);
-      } else {
-        const byMatchPlayers = new Map();
-        for (const p of players || []) {
-          const mid = p.match_id;
-          if (!byMatchPlayers.has(mid)) byMatchPlayers.set(mid, []);
-          byMatchPlayers.get(mid).push(p);
-        }
-
-        list = list.map((m) => {
-          const ps = byMatchPlayers.get(m.matchId) || [];
-          const t1 = ps
-            .filter((p) => p.team === 1)
-            .sort((a, b) => a.slot - b.slot)
-            .map((p) => p.name);
-          const t2 = ps
-            .filter((p) => p.team === 2)
-            .sort((a, b) => a.slot - b.slot)
-            .map((p) => p.name);
-
-          return {
-            ...m,
-            team1Name: t1.length ? t1.join(' / ') : 'Team 1',
-            team2Name: t2.length ? t2.join(' / ') : 'Team 2',
-          };
-        });
       }
+
+      const playersByMatch = new Map();
+      for (const p of players || []) {
+        const mid = p.match_id;
+        if (!playersByMatch.has(mid)) playersByMatch.set(mid, []);
+        playersByMatch.get(mid).push(p);
+      }
+
+      // notes
+      const { data: matchesMeta, error: mErr } = await supabase
+        .from('matches')
+        .select('match_id, note')
+        .in('match_id', matchIds);
+
+      if (mErr) {
+        console.error('Supabase matches select error:', mErr);
+      }
+
+      const noteByMatch = new Map();
+      for (const m of matchesMeta || []) {
+        noteByMatch.set(m.match_id, m.note || null);
+      }
+
+      list = list.map((m) => {
+        const ps = playersByMatch.get(m.matchId) || [];
+        const t1 = ps
+          .filter((p) => p.team === 1)
+          .sort((a, b) => a.slot - b.slot)
+          .map((p) => p.name);
+        const t2 = ps
+          .filter((p) => p.team === 2)
+          .sort((a, b) => a.slot - b.slot)
+          .map((p) => p.name);
+
+        return {
+          ...m,
+          team1Name: t1.length ? t1.join(' / ') : 'Team 1',
+          team2Name: t2.length ? t2.join(' / ') : 'Team 2',
+          note: noteByMatch.get(m.matchId) || null,
+        };
+      });
     }
 
     // newest first
@@ -504,6 +520,7 @@ app.get('/api/db-matches', async (req, res) => {
     return res.status(500).json({ error: 'Unexpected error' });
   }
 });
+
 
 // Set player NAMES for a given match (from viewer)
 app.post('/api/match/:id/players', async (req, res) => {
@@ -562,5 +579,6 @@ const port = process.env.PORT || 10000;
 app.listen(port, () => {
   console.log(`Listening on ${port}`);
 });
+
 
 
