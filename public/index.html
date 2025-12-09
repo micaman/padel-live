@@ -274,63 +274,70 @@
       return null;
     }
 
-    function createMatchCard(match) {
-      const card = document.createElement('a');
-      card.href = `/match/${match.matchId}`;
-      card.className = 'match-card';
+function createMatchCard(match) {
+  const card = document.createElement('a');
+  card.href = `/match/${match.matchId}`;
+  card.className = 'match-card';
 
-      card.innerHTML = `
-        <div class="scoreboard-wrapper">
-          <div class="scoreboard">
-            <div class="sb-icon"><div class="sb-icon-symbol"></div></div>
+  card.innerHTML = `
+    <div class="scoreboard-wrapper">
+      <div class="scoreboard">
+        <div class="sb-icon"><div class="sb-icon-symbol"></div></div>
 
-            <div class="sb-teams">
-              <div class="sb-row">
-                <div class="team-name team1Name">TEAM 1</div>
-                <div class="team-meta">
-                  <span class="server-dot team1ServerDot" style="display:none;"></span>
-                </div>
-              </div>
-              <div class="sb-row">
-                <div class="team-name team2Name">TEAM 2</div>
-                <div class="team-meta">
-                  <span class="server-dot team2ServerDot" style="display:none;"></span>
-                </div>
-              </div>
+        <div class="sb-teams">
+          <div class="sb-row">
+            <div class="team-name team1Name">TEAM 1</div>
+            <div class="team-meta">
+              <span class="server-dot team1ServerDot" style="display:none;"></span>
             </div>
-
-            <div class="sb-sets">
-              <div class="sb-set-col">
-                <div class="sb-set-top set1T1">-</div>
-                <div class="sb-set-bottom set1T2">-</div>
-              </div>
-              <div class="sb-set-col">
-                <div class="sb-set-top set2T1">-</div>
-                <div class="sb-set-bottom set2T2">-</div>
-              </div>
-              <div class="sb-set-col">
-                <div class="sb-set-top set3T1">-</div>
-                <div class="sb-set-bottom set3T2">-</div>
-              </div>
-            </div>
-
-            <div class="sb-points">
-              <div class="sb-point-top team1Points">0</div>
-              <div class="sb-point-bottom team2Points">0</div>
+          </div>
+          <div class="sb-row">
+            <div class="team-name team2Name">TEAM 2</div>
+            <div class="team-meta">
+              <span class="server-dot team2ServerDot" style="display:none;"></span>
             </div>
           </div>
         </div>
 
-        <div class="match-meta">
-          <span>#${match.matchId}</span>
-          <span>${formatDate(match.lastTimestamp)}</span>
-          <span>${match.eventsCount || 0} pts</span>
+        <div class="sb-sets">
+          <div class="sb-set-col">
+            <div class="sb-set-top set1T1">-</div>
+            <div class="sb-set-bottom set1T2">-</div>
+          </div>
+          <div class="sb-set-col">
+            <div class="sb-set-top set2T1">-</div>
+            <div class="sb-set-bottom set2T2">-</div>
+          </div>
+          <div class="sb-set-col">
+            <div class="sb-set-top set3T1">-</div>
+            <div class="sb-set-bottom set3T2">-</div>
+          </div>
         </div>
-      `;
 
-      populateScoreboardFromSnapshot(card, match.lastSnapshot || {});
-      return card;
-    }
+        <div class="sb-points">
+          <div class="sb-point-top team1Points">0</div>
+          <div class="sb-point-bottom team2Points">0</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="match-meta">
+      <span>#${match.matchId}</span>
+      <span>${formatDate(match.lastTimestamp)}</span>
+      <span>${match.eventsCount || 0} pts</span>
+    </div>
+  `;
+
+  // set names from DB
+  const t1NameEl = card.querySelector('.team1Name');
+  const t2NameEl = card.querySelector('.team2Name');
+  t1NameEl.textContent = (match.team1Name || 'Team 1').toUpperCase();
+  t2NameEl.textContent = (match.team2Name || 'Team 2').toUpperCase();
+
+  populateScoreboardFromSnapshot(card, match.lastSnapshot || {});
+  return card;
+}
+
 
     function populateScoreboardFromSnapshot(card, snap) {
       const team1PointsEl = card.querySelector('.team1Points');
@@ -416,3 +423,4 @@
   </script>
 </body>
 </html>
+
