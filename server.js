@@ -381,26 +381,30 @@ app.get('/api/db-matches', async (req, res) => {
 
       const existing = byMatch.get(mid);
       if (!existing) {
-        byMatch.set(mid, { lastEvent: e, lastTs: ts });
+        byMatch.set(mid, { lastEvent: e, lastTs: ts, count: 1 });
       } else {
+        existing.count += 1;
         if (ts && (!existing.lastTs || new Date(ts) > new Date(existing.lastTs))) {
-          byMatch.set(mid, { lastEvent: e, lastTs: ts });
+          existing.lastTs = ts;
+          existing.lastEvent = e;
         }
       }
     }
 
-    const list = Array.from(byMatch.entries()).map(([matchId, { lastEvent, lastTs }]) => {
-      const raw = lastEvent.raw || {};
+    const list = Array.from(byMatch.entries()).map(([matchId, info]) => {
+      const raw = info.lastEvent.raw || {};
       const { score, setsString } = summaryFromRaw(raw);
       return {
         matchId,
         score,
         setsString,
-        lastTimestamp: lastTs,
-        eventsCount: events.filter((e) => String(e.match_id) === matchId).length,
+        lastTimestamp: info.lastTs,
+        eventsCount: info.count,
+        lastSnapshot: raw,        // <--- this is what index.html will use
       };
     });
 
+    // newest first by lastTimestamp
     list.sort((a, b) => {
       const ta = a.lastTimestamp ? new Date(a.lastTimestamp).getTime() : 0;
       const tb = b.lastTimestamp ? new Date(b.lastTimestamp).getTime() : 0;
@@ -413,6 +417,7 @@ app.get('/api/db-matches', async (req, res) => {
     return res.status(500).json({ error: 'Unexpected error' });
   }
 });
+
 
 // Set player NAMES for a given match (from viewer)
 app.post('/api/match/:id/players', async (req, res) => {
@@ -471,3 +476,4 @@ const port = process.env.PORT || 10000;
 app.listen(port, () => {
   console.log(`Listening on ${port}`);
 });
+
