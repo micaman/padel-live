@@ -342,16 +342,65 @@ app.get('/api/match/:id/history', async (req, res) => {
       console.error('Supabase match_players select error:', pErr);
     }
 
+    const { data: matchMeta, error: mErr } = await supabase
+      .from('matches')
+      .select('note')
+      .eq('match_id', matchId)
+      .maybeSingle();
+
+    if (mErr && mErr.code !== 'PGRST116') {
+      // ignore "no rows" error
+      console.error('Supabase matches select error:', mErr);
+    }
+
     return res.json({
       matchId,
       snapshots,
       players: players || [],
+      note: matchMeta?.note || null,
     });
   } catch (e) {
     console.error('Supabase /api/match/:id/history exception:', e);
     return res.status(500).json({ error: 'Unexpected error' });
   }
 });
+
+// Set / update note for a match
+app.post('/api/match/:id/note', async (req, res) => {
+  const matchId = String(req.params.id);
+  const { note } = req.body || {};
+
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  try {
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('matches')
+      .upsert(
+        {
+          match_id: matchId,
+          note: note ?? null,
+          updated_at: now,
+        },
+        { onConflict: 'match_id' }
+      )
+      .select('note')
+      .single();
+
+    if (error) {
+      console.error('Supabase matches upsert error:', error);
+      return res.status(500).json({ error: 'Failed to save note' });
+    }
+
+    return res.json({ ok: true, note: data.note });
+  } catch (e) {
+    console.error('Supabase /api/match/:id/note exception:', e);
+    return res.status(500).json({ error: 'Unexpected error' });
+  }
+});
+
 
 // List matches from DB (for index page)
 app.get('/api/db-matches', async (req, res) => {
@@ -391,7 +440,7 @@ app.get('/api/db-matches', async (req, res) => {
       }
     }
 
-    const list = Array.from(byMatch.entries()).map(([matchId, info]) => {
+    let list = Array.from(byMatch.entries()).map(([matchId, info]) => {
       const raw = info.lastEvent.raw || {};
       const { score, setsString } = summaryFromRaw(raw);
       return {
@@ -400,11 +449,49 @@ app.get('/api/db-matches', async (req, res) => {
         setsString,
         lastTimestamp: info.lastTs,
         eventsCount: info.count,
-        lastSnapshot: raw,        // <--- this is what index.html will use
+        lastSnapshot: raw,
       };
     });
 
-    // newest first by lastTimestamp
+    // fetch player names for all matchIds
+    const matchIds = list.map((m) => m.matchId);
+    if (matchIds.length) {
+      const { data: players, error: pErr } = await supabase
+        .from('match_players')
+        .select('match_id, team, slot, name')
+        .in('match_id', matchIds);
+
+      if (pErr) {
+        console.error('Supabase match_players select error:', pErr);
+      } else {
+        const byMatchPlayers = new Map();
+        for (const p of players || []) {
+          const mid = p.match_id;
+          if (!byMatchPlayers.has(mid)) byMatchPlayers.set(mid, []);
+          byMatchPlayers.get(mid).push(p);
+        }
+
+        list = list.map((m) => {
+          const ps = byMatchPlayers.get(m.matchId) || [];
+          const t1 = ps
+            .filter((p) => p.team === 1)
+            .sort((a, b) => a.slot - b.slot)
+            .map((p) => p.name);
+          const t2 = ps
+            .filter((p) => p.team === 2)
+            .sort((a, b) => a.slot - b.slot)
+            .map((p) => p.name);
+
+          return {
+            ...m,
+            team1Name: t1.length ? t1.join(' / ') : 'Team 1',
+            team2Name: t2.length ? t2.join(' / ') : 'Team 2',
+          };
+        });
+      }
+    }
+
+    // newest first
     list.sort((a, b) => {
       const ta = a.lastTimestamp ? new Date(a.lastTimestamp).getTime() : 0;
       const tb = b.lastTimestamp ? new Date(b.lastTimestamp).getTime() : 0;
@@ -417,7 +504,6 @@ app.get('/api/db-matches', async (req, res) => {
     return res.status(500).json({ error: 'Unexpected error' });
   }
 });
-
 
 // Set player NAMES for a given match (from viewer)
 app.post('/api/match/:id/players', async (req, res) => {
@@ -476,4 +562,5 @@ const port = process.env.PORT || 10000;
 app.listen(port, () => {
   console.log(`Listening on ${port}`);
 });
+
 
