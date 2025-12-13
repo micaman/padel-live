@@ -401,123 +401,93 @@ app.post('/api/match/:id/note', async (req, res) => {
   }
 });
 
-// List matches from DB (for index page)
+// List matches from DB (paginated, newest first)
 app.get('/api/db-matches', async (req, res) => {
-  if (!supabase) {
-    return res.status(500).json({ error: 'Supabase not configured' });
-  }
+  if (!supabase) return res.status(500).json({ error: 'Supabase not configured' });
+
+  const limit = Math.min(Math.max(parseInt(req.query.limit || '10', 10), 1), 50);
+  const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
 
   try {
-    const { data: events, error } = await supabase
-      .from('watch_events')
-      .select('id, match_id, raw, watch_timestamp, received_at')
-      .order('match_id', { ascending: true })
-      .order('watch_timestamp', { ascending: true, nullsFirst: true })
-      .order('id', { ascending: true });
-
-    console.log('db-matches fetched rows:', (events || []).length);
-
+    // 1 row per match (latest event)
+    const { data: latest, error } = await supabase
+      .from('latest_watch_event_per_match')
+      .select('match_id, raw, watch_timestamp, received_at')
+      .order('watch_timestamp', { ascending: false, nullsLast: true })
+      .order('id', { ascending: false })
+      .range(offset, offset + limit - 1);
 
     if (error) {
-      console.error('Supabase db-matches select error:', error);
+      console.error('Supabase latest view select error:', error);
       return res.status(500).json({ error: 'Failed to load matches' });
     }
 
-    const byMatch = new Map();
-
-    for (const e of events || []) {
+    let list = (latest || []).map((e) => {
       const raw = e.raw || {};
-      const mid = String(raw.matchId || e.match_id);
+      const matchId = String(e.match_id);
       const ts = e.watch_timestamp || e.received_at || null;
-
-      const existing = byMatch.get(mid);
-      if (!existing) {
-        byMatch.set(mid, { lastEvent: e, lastTs: ts, count: 1 });
-      } else {
-        existing.count += 1;
-        if (ts && (!existing.lastTs || new Date(ts) > new Date(existing.lastTs))) {
-          existing.lastTs = ts;
-          existing.lastEvent = e;
-        }
-      }
-    }
-
-    let list = Array.from(byMatch.entries()).map(([matchId, info]) => {
-      const raw = info.lastEvent.raw || {};
       const { score, setsString } = summaryFromRaw(raw);
+
       return {
         matchId,
         score,
         setsString,
-        lastTimestamp: info.lastTs,
-        eventsCount: info.count,
+        lastTimestamp: ts,
         lastSnapshot: raw,
       };
     });
 
     const matchIds = list.map((m) => m.matchId);
 
-    if (matchIds.length) {
-      // player names
-      const { data: players, error: pErr } = await supabase
-        .from('match_players')
-        .select('match_id, team, slot, name')
-        .in('match_id', matchIds);
+    // names
+    const { data: players, error: pErr } = await supabase
+      .from('match_players')
+      .select('match_id, team, slot, name')
+      .in('match_id', matchIds);
 
-      if (pErr) {
-        console.error('Supabase match_players select error:', pErr);
-      }
+    if (pErr) console.error('Supabase match_players select error:', pErr);
 
-      const playersByMatch = new Map();
-      for (const p of players || []) {
-        const mid = p.match_id;
-        if (!playersByMatch.has(mid)) playersByMatch.set(mid, []);
-        playersByMatch.get(mid).push(p);
-      }
-
-      // notes
-      const { data: matchesMeta, error: mErr } = await supabase
-        .from('matches')
-        .select('match_id, note')
-        .in('match_id', matchIds);
-
-      if (mErr) {
-        console.error('Supabase matches select error:', mErr);
-      }
-
-      const noteByMatch = new Map();
-      for (const m of matchesMeta || []) {
-        noteByMatch.set(m.match_id, m.note || null);
-      }
-
-      list = list.map((m) => {
-        const ps = playersByMatch.get(m.matchId) || [];
-        const t1 = ps
-          .filter((p) => p.team === 1)
-          .sort((a, b) => a.slot - b.slot)
-          .map((p) => p.name);
-        const t2 = ps
-          .filter((p) => p.team === 2)
-          .sort((a, b) => a.slot - b.slot)
-          .map((p) => p.name);
-
-        return {
-          ...m,
-          team1Name: t1.length ? t1.join(' / ') : 'Team 1',
-          team2Name: t2.length ? t2.join(' / ') : 'Team 2',
-          note: noteByMatch.get(m.matchId) || null,
-        };
-      });
+    const playersByMatch = new Map();
+    for (const p of players || []) {
+      const mid = p.match_id;
+      if (!playersByMatch.has(mid)) playersByMatch.set(mid, []);
+      playersByMatch.get(mid).push(p);
     }
 
-    // newest first
-    list.sort((a, b) => {
-      const ta = a.lastTimestamp ? new Date(a.lastTimestamp).getTime() : 0;
-      const tb = b.lastTimestamp ? new Date(b.lastTimestamp).getTime() : 0;
-      return tb - ta;
+    // notes
+    const { data: matchesMeta, error: mErr } = await supabase
+      .from('matches')
+      .select('match_id, note')
+      .in('match_id', matchIds);
+
+    if (mErr) console.error('Supabase matches select error:', mErr);
+
+    const noteByMatch = new Map();
+    for (const m of matchesMeta || []) noteByMatch.set(m.match_id, m.note || null);
+
+    list = list.map((m) => {
+      const ps = playersByMatch.get(m.matchId) || [];
+      const t1 = ps
+        .filter((p) => p.team === 1)
+        .sort((a, b) => a.slot - b.slot)
+        .map((p) => p.name);
+      const t2 = ps
+        .filter((p) => p.team === 2)
+        .sort((a, b) => a.slot - b.slot)
+        .map((p) => p.name);
+
+      return {
+        ...m,
+        team1Name: t1.length ? t1.join(' / ') : 'Team 1',
+        team2Name: t2.length ? t2.join(' / ') : 'Team 2',
+        note: noteByMatch.get(m.matchId) || null,
+      };
     });
 
-    return res.json(list);
+    // If we got fewer than limit, there are no more pages.
+    const hasMore = (latest || []).length === limit;
+
+    return res.json({ items: list, limit, offset, hasMore });
   } catch (e) {
     console.error('Supabase /api/db-matches exception:', e);
     return res.status(500).json({ error: 'Unexpected error' });
@@ -582,6 +552,7 @@ const port = process.env.PORT || 10000;
 app.listen(port, () => {
   console.log(`Listening on ${port}`);
 });
+
 
 
 
