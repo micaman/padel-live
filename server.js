@@ -415,6 +415,9 @@ app.get('/api/db-matches', async (req, res) => {
       .order('watch_timestamp', { ascending: true, nullsFirst: true })
       .order('id', { ascending: true });
 
+    console.log('db-matches fetched rows:', (events || []).length);
+
+
     if (error) {
       console.error('Supabase db-matches select error:', error);
       return res.status(500).json({ error: 'Failed to load matches' });
@@ -579,6 +582,7 @@ const port = process.env.PORT || 10000;
 app.listen(port, () => {
   console.log(`Listening on ${port}`);
 });
+
 
 
 
