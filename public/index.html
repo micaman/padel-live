@@ -36,7 +36,7 @@
 
     .status {
       font-size: 13px;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       opacity: .9;
     }
 
@@ -49,7 +49,7 @@
     .matches-list {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 14px;
     }
 
     .match-card {
@@ -61,7 +61,7 @@
       border: 1px solid #26293a;
       padding: 12px;
       box-shadow: 0 6px 18px rgba(0,0,0,0.55);
-      transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+      transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
     }
 
     .match-card:hover {
@@ -70,28 +70,41 @@
       border-color: #f7c948;
     }
 
-.match-note {
-  margin-top: 4px;
-  font-size: 12px;
-  opacity: 0.85;
-  white-space: pre-wrap;
-}
-
-
     .match-meta {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-top: 8px;
+      margin-top: 6px;
       font-size: 11px;
-      opacity: 0.85;
-    }
-
-    .match-meta span {
+      opacity: .85;
+      display: flex;
+      gap: 10px;
       font-variant-numeric: tabular-nums;
     }
 
-    /* SCOREBOARD (same-ish as match view, but scoped for cards) */
+    .match-note {
+      margin-top: 4px;
+      font-size: 12px;
+      opacity: .85;
+      white-space: pre-wrap;
+    }
+
+    .load-more {
+      margin-top: 16px;
+      display: flex;
+      justify-content: center;
+    }
+
+    button {
+      padding: 6px 14px;
+      border-radius: 4px;
+      border: 1px solid #f7c948;
+      background: #2b3042;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    button:hover { background: #343a56; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+
+    /* -------- SCOREBOARD -------- */
 
     .scoreboard-wrapper {
       display: flex;
@@ -107,7 +120,6 @@
       display: grid;
       grid-template-columns: 44px 1fr auto 64px;
       overflow: hidden;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.45);
     }
 
     .sb-icon {
@@ -118,7 +130,8 @@
     }
 
     .sb-icon-symbol {
-      width: 22px; height: 22px;
+      width: 22px;
+      height: 22px;
       border-radius: 50%;
       border: 2px solid #f7c948;
     }
@@ -149,19 +162,11 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      display: flex;
-      align-items: center;
-    }
-
-    .team-meta {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 4px;
     }
 
     .server-dot {
-      width: 7px; height: 7px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: var(--server-dot);
     }
@@ -200,9 +205,8 @@
       display: grid;
       grid-template-rows: 1fr 1fr;
       border-left: 1px solid var(--card-border);
-      text-align: center;
-      font-weight: bold;
       font-size: 18px;
+      font-weight: bold;
     }
 
     .sb-point-top,
@@ -214,226 +218,157 @@
 
     .sb-point-top {
       background: var(--point-top-bg);
-      color: var(--point-text);
     }
 
     .sb-point-bottom {
       background: var(--point-bottom-bg);
-      color: var(--point-text);
       border-top: 1px solid var(--card-border);
-    }
-
-    .empty {
-      font-size: 13px;
-      opacity: .8;
-      margin-top: 8px;
     }
   </style>
 </head>
+
 <body>
   <h1>Padel Matches</h1>
+
   <div id="status" class="status"></div>
   <div id="error" class="error"></div>
 
   <div id="matchesList" class="matches-list"></div>
 
-  <script>
-    const statusEl = document.getElementById('status');
-    const errorEl = document.getElementById('error');
-    const matchesList = document.getElementById('matchesList');
+  <div class="load-more">
+    <button id="loadMoreBtn">Load 10 more</button>
+  </div>
 
-    function formatDate(ts) {
-      if (!ts) return '–';
-      const d = new Date(ts);
-      if (Number.isNaN(d.getTime())) return '–';
-      return d.toLocaleString();
-    }
+<script>
+  const matchesList = document.getElementById('matchesList');
+  const loadMoreBtn = document.getElementById('loadMoreBtn');
+  const statusEl = document.getElementById('status');
+  const errorEl = document.getElementById('error');
 
-    // --- helpers mirroring match view ---
+  let offset = 0;
+  const limit = 10;
+  let hasMore = true;
+  let loading = false;
 
-    function parseSetsArray(setsString, setsObj) {
-      const arr = [];
+  function formatDate(ts) {
+    if (!ts) return '–';
+    const d = new Date(ts);
+    return Number.isNaN(d.getTime()) ? '–' : d.toLocaleString();
+  }
 
-      if (typeof setsString === 'string' && setsString.trim()) {
-        const parts = setsString.split('/').map(s => s.trim()).filter(Boolean);
-        for (const part of parts) {
-          const m = part.match(/(\d+)\s*-\s*(\d+)/);
-          if (m) arr.push({ team1: m[1], team2: m[2] });
-        }
-        if (arr.length) return arr;
-      }
+  function serverTeam(server) {
+    if (typeof server !== 'number') return null;
+    if (server >= 1 && server <= 4) return server <= 2 ? 1 : 2;
+    if (server === 1 || server === 2) return server;
+    return null;
+  }
 
-      if (setsObj && (setsObj.team1 !== undefined || setsObj.team2 !== undefined)) {
-        arr.push({
-          team1: setsObj.team1 ?? '-',
-          team2: setsObj.team2 ?? '-'
-        });
-      }
+  function parseSets(sets) {
+    if (typeof sets !== 'string') return [];
+    return sets.split('/').map(s => {
+      const m = s.trim().match(/(\d+)\s*-\s*(\d+)/);
+      return m ? { t1: m[1], t2: m[2] } : null;
+    }).filter(Boolean);
+  }
 
-      return arr;
-    }
+  function createMatchCard(m) {
+    const card = document.createElement('a');
+    card.className = 'match-card';
+    card.href = `/match/${m.matchId}`;
 
-    function serverTeamFromServerField(server) {
-      if (typeof server !== 'number') return null;
-      if (server >= 1 && server <= 4) {
-        return server <= 2 ? 1 : 2;
-      }
-      if (server === 1 || server === 2) return server;
-      return null;
-    }
+    card.innerHTML = `
+      <div class="scoreboard-wrapper">
+        <div class="scoreboard">
+          <div class="sb-icon"><div class="sb-icon-symbol"></div></div>
 
-function createMatchCard(match) {
-  const card = document.createElement('a');
-  card.href = `/match/${match.matchId}`;
-  card.className = 'match-card';
-
-  card.innerHTML = `
-    <div class="scoreboard-wrapper">
-      <div class="scoreboard">
-        <div class="sb-icon"><div class="sb-icon-symbol"></div></div>
-
-        <div class="sb-teams">
-          <div class="sb-row">
-            <div class="team-name team1Name">TEAM 1</div>
-            <div class="team-meta">
-              <span class="server-dot team1ServerDot" style="display:none;"></span>
+          <div class="sb-teams">
+            <div class="sb-row">
+              <div class="team-name">${(m.team1Name || 'Team 1').toUpperCase()}</div>
+              <span class="server-dot" style="display:none"></span>
+            </div>
+            <div class="sb-row">
+              <div class="team-name">${(m.team2Name || 'Team 2').toUpperCase()}</div>
+              <span class="server-dot" style="display:none"></span>
             </div>
           </div>
-          <div class="sb-row">
-            <div class="team-name team2Name">TEAM 2</div>
-            <div class="team-meta">
-              <span class="server-dot team2ServerDot" style="display:none;"></span>
-            </div>
-          </div>
-        </div>
 
-        <div class="sb-sets">
-          <div class="sb-set-col">
-            <div class="sb-set-top set1T1">-</div>
-            <div class="sb-set-bottom set1T2">-</div>
+          <div class="sb-sets">
+            <div class="sb-set-col"><div>-</div><div>-</div></div>
+            <div class="sb-set-col"><div>-</div><div>-</div></div>
+            <div class="sb-set-col"><div>-</div><div>-</div></div>
           </div>
-          <div class="sb-set-col">
-            <div class="sb-set-top set2T1">-</div>
-            <div class="sb-set-bottom set2T2">-</div>
-          </div>
-          <div class="sb-set-col">
-            <div class="sb-set-top set3T1">-</div>
-            <div class="sb-set-bottom set3T2">-</div>
-          </div>
-        </div>
 
-        <div class="sb-points">
-          <div class="sb-point-top team1Points">0</div>
-          <div class="sb-point-bottom team2Points">0</div>
+          <div class="sb-points">
+            <div class="sb-point-top">0</div>
+            <div class="sb-point-bottom">0</div>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div class="match-meta">
-      <span>${formatDate(match.lastTimestamp)}</span>
-      <span>#${match.matchId}</span>
-    </div>
+      <div class="match-meta">
+        <span>${formatDate(m.lastTimestamp)}</span>
+        <span>#${m.matchId}</span>
+      </div>
 
-    <div class="match-note">
-      ${match.note ? match.note.replace(/</g, "&lt;") : '<em>No note</em>'}
-    </div>
-  `;
+      <div class="match-note">
+        ${m.note ? m.note.replace(/</g, '&lt;') : '<em>No note</em>'}
+      </div>
+    `;
 
-  // set team names from DB
-  const t1NameEl = card.querySelector('.team1Name');
-  const t2NameEl = card.querySelector('.team2Name');
-  t1NameEl.textContent = (match.team1Name || 'Team 1').toUpperCase();
-  t2NameEl.textContent = (match.team2Name || 'Team 2').toUpperCase();
+    const snap = m.lastSnapshot || {};
+    const pts = snap.points || {};
+    const sets = parseSets(snap.sets);
 
-  // fill scoreboard from lastSnapshot
-  populateScoreboardFromSnapshot(card, match.lastSnapshot || {});
-  return card;
-}
+    const setCols = card.querySelectorAll('.sb-set-col');
+    sets.forEach((s, i) => {
+      if (!setCols[i]) return;
+      setCols[i].children[0].textContent = s.t1;
+      setCols[i].children[1].textContent = s.t2;
+    });
 
-    function populateScoreboardFromSnapshot(card, snap) {
-      const team1PointsEl = card.querySelector('.team1Points');
-      const team2PointsEl = card.querySelector('.team2Points');
-      const team1ServerDot = card.querySelector('.team1ServerDot');
-      const team2ServerDot = card.querySelector('.team2ServerDot');
+    card.querySelector('.sb-point-top').textContent = pts.team1 ?? '0';
+    card.querySelector('.sb-point-bottom').textContent = pts.team2 ?? '0';
 
-      const setCells = [
-        {
-          t1: card.querySelector('.set1T1'),
-          t2: card.querySelector('.set1T2')
-        },
-        {
-          t1: card.querySelector('.set2T1'),
-          t2: card.querySelector('.set2T2')
-        },
-        {
-          t1: card.querySelector('.set3T1'),
-          t2: card.querySelector('.set3T2')
-        }
-      ];
+    const st = serverTeam(snap.server);
+    const dots = card.querySelectorAll('.server-dot');
+    if (st === 1) dots[0].style.display = 'inline-block';
+    if (st === 2) dots[1].style.display = 'inline-block';
 
-      const setsArr = parseSetsArray(
-        typeof snap.sets === 'string' ? snap.sets : '',
-        (snap.sets && typeof snap.sets === 'object') ? snap.sets : null
-      );
+    return card;
+  }
 
-      for (let i = 0; i < setCells.length; i++) {
-        const col = setCells[i];
-        const s = setsArr[i];
-        if (s) {
-          col.t1.textContent = s.team1;
-          col.t2.textContent = s.team2;
-        } else {
-          col.t1.textContent = '-';
-          col.t2.textContent = '-';
-        }
-      }
+  async function loadNext() {
+    if (loading || !hasMore) return;
+    loading = true;
+    loadMoreBtn.disabled = true;
+    errorEl.textContent = '';
 
-      const pts = snap.points || {};
-      team1PointsEl.textContent = pts.team1 ?? '0';
-      team2PointsEl.textContent = pts.team2 ?? '0';
+    try {
+      const res = await fetch(`/api/db-matches?limit=${limit}&offset=${offset}`);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
 
-      const st = serverTeamFromServerField(snap.server);
-      team1ServerDot.style.display = st === 1 ? 'inline-block' : 'none';
-      team2ServerDot.style.display = st === 2 ? 'inline-block' : 'none';
+      const data = await res.json();
+      const items = data.items || [];
+
+      items.forEach(m => matchesList.appendChild(createMatchCard(m)));
+
+      offset += items.length;
+      hasMore = data.hasMore;
+
+      statusEl.textContent = `Showing ${offset} matches`;
+      loadMoreBtn.style.display = hasMore ? 'inline-block' : 'none';
+    } catch (e) {
+      console.error(e);
+      errorEl.textContent = 'Failed to load matches';
+    } finally {
+      loading = false;
+      loadMoreBtn.disabled = false;
     }
+  }
 
-    async function loadMatches() {
-      statusEl.textContent = 'Loading matches...';
-      errorEl.textContent = '';
-      matchesList.innerHTML = '';
+  loadMoreBtn.addEventListener('click', loadNext);
 
-      try {
-        const res = await fetch('/api/db-matches');
-        if (!res.ok) {
-          throw new Error('HTTP ' + res.status);
-        }
-        const matches = await res.json();
-
-        if (!matches.length) {
-          statusEl.textContent = '';
-          matchesList.innerHTML = '<div class="empty">No matches in database yet.</div>';
-          return;
-        }
-
-        matchesList.innerHTML = '';
-        matches.forEach(m => {
-          const card = createMatchCard(m);
-          matchesList.appendChild(card);
-        });
-
-        statusEl.textContent = `Loaded ${matches.length} matches (latest first).`;
-      } catch (err) {
-        console.error(err);
-        statusEl.textContent = '';
-        errorEl.textContent = 'Failed to load matches: ' + err.message;
-        matchesList.innerHTML = '<div class="empty">Error loading matches.</div>';
-      }
-    }
-
-    loadMatches();
-  </script>
+  loadNext();
+</script>
 </body>
 </html>
-
-
-
