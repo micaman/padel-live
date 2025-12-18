@@ -57,15 +57,15 @@
           </div>
 
           <div class="sb-sets">
-            <div class="sb-set-col">
+            <div class="sb-set-col" id="setCol1">
               <div class="sb-set-top" id="set1T1">-</div>
               <div class="sb-set-bottom" id="set1T2">-</div>
             </div>
-            <div class="sb-set-col">
+            <div class="sb-set-col" id="setCol2">
               <div class="sb-set-top" id="set2T1">-</div>
               <div class="sb-set-bottom" id="set2T2">-</div>
             </div>
-            <div class="sb-set-col">
+            <div class="sb-set-col" id="setCol3">
               <div class="sb-set-top" id="set3T1">-</div>
               <div class="sb-set-bottom" id="set3T2">-</div>
             </div>
@@ -121,11 +121,17 @@
         <div class="match-meta-display">
           <div class="match-meta-row">
             <span class="match-meta-label">Type</span>
-            <span class="match-meta-value" id="matchTypeDisplay">—</span>
+            <div class="match-meta-value with-media">
+              <img id="matchTypeIcon" class="match-meta-media" alt="" />
+              <span id="matchTypeDisplay">—</span>
+            </div>
           </div>
           <div class="match-meta-row">
             <span class="match-meta-label">Location</span>
-            <span class="match-meta-value" id="matchLocationDisplay">—</span>
+            <div class="match-meta-value with-media">
+              <img id="matchLocationLogo" class="match-meta-media" alt="" />
+              <span id="matchLocationDisplay">—</span>
+            </div>
           </div>
           <div class="match-meta-row note-row">
             <span class="match-meta-label">Note</span>
@@ -133,10 +139,14 @@
           </div>
         </div>
         <div id="matchMetaForm" class="match-meta-form" style="display:none;">
-          <label for="matchTypeInput">Match Type</label>
-          <input id="matchTypeInput" placeholder="e.g. Friends Match">
-          <label for="matchLocationInput">Location</label>
-          <input id="matchLocationInput" placeholder="e.g. Golden Padel">
+          <label for="matchTypeSelect">Match Type</label>
+          <select id="matchTypeSelect"></select>
+          <input id="matchTypeNewInput" class="match-meta-new-input" placeholder="New match type name" style="display:none;">
+
+          <label for="matchLocationSelect">Location</label>
+          <select id="matchLocationSelect"></select>
+          <input id="matchLocationNewInput" class="match-meta-new-input" placeholder="New location name" style="display:none;">
+
           <label for="noteInput">Match Note</label>
           <textarea id="noteInput" rows="3"></textarea>
           <button type="button" id="saveMetaBtn">Save match info</button>

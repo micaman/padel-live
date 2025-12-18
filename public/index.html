@@ -83,25 +83,55 @@
       margin-top: 6px;
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
-      font-size: 11px;
+      gap: 10px;
+      align-items: center;
     }
 
     .match-tag {
-      padding: 2px 8px;
-      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
       border: 1px solid rgba(247, 201, 72, 0.45);
-      background: rgba(247, 201, 72, 0.15);
       color: #f7c948;
-      text-transform: uppercase;
+      font-size: 11px;
       letter-spacing: 0.05em;
+      text-transform: uppercase;
     }
 
-    .match-note {
-      margin-top: 4px;
-      font-size: 12px;
-      opacity: .85;
-      white-space: pre-wrap;
+    .match-tag--logo {
+      width: 50px;
+      height: 50px;
+      overflow: hidden;
+      background: #aaa;
+    }
+
+    .match-tag--logo img {
+      width: 50px;
+      height: 50px;
+      object-fit: scale-down;
+      background: #aaa;
+    }
+
+    .match-tag--text {
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(247, 201, 72, 0.15);
+    }
+
+    .match-tag--result {
+      font-weight: 700;
+      min-width: 44px;
+    }
+
+    .match-tag--win {
+      border-color: rgba(87, 214, 87, 0.6);
+      color: #57d657;
+    }
+
+    .match-tag--loss {
+      border-color: rgba(255, 107, 107, 0.6);
+      color: #ff6b6b;
     }
 
     .load-more {
@@ -290,9 +320,13 @@
   }
 
   function formatDate(ts) {
-    if (!ts) return '???';
+    if (!ts) return '??/??/????';
     const d = new Date(ts);
-    return Number.isNaN(d.getTime()) ? '???' : d.toLocaleString();
+    if (Number.isNaN(d.getTime())) return '??/??/????';
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
   }
 
   function serverTeam(server) {
@@ -310,16 +344,62 @@
     }).filter(Boolean);
   }
 
+  function shouldHideSetForFinishedMatch(match, top, bottom) {
+    if (match.status !== 'finished') return false;
+    const normalize = (value) => {
+      if (value == null) return null;
+      const trimmed = String(value).trim();
+      if (!trimmed || trimmed === '-' || trimmed === '—') return null;
+      const num = Number(trimmed);
+      return Number.isNaN(num) ? trimmed : num;
+    };
+
+    const topNorm = normalize(top);
+    const bottomNorm = normalize(bottom);
+
+    const bothMissing = topNorm == null && bottomNorm == null;
+    const bothZero =
+      typeof topNorm === 'number' &&
+      typeof bottomNorm === 'number' &&
+      topNorm === 0 &&
+      bottomNorm === 0;
+
+    return bothMissing || bothZero;
+  }
+
   function renderMetaTags(match) {
     const tags = [];
-    if (match.matchType) {
-      tags.push(`<span class="match-tag">${escapeHtml(match.matchType)}</span>`);
+    if (match.winnerTeam === 2) {
+      tags.push(buildTextTag('W', 'match-tag--result match-tag--win'));
+    } else if (match.winnerTeam === 1) {
+      tags.push(buildTextTag('L', 'match-tag--result match-tag--loss'));
     }
-    if (match.matchLocation) {
-      tags.push(`<span class="match-tag">${escapeHtml(match.matchLocation)}</span>`);
+
+    const dateLabel = `${formatDate(match.lastTimestamp)} #${match.matchId}`;
+    tags.push(buildTextTag(dateLabel, 'match-tag--text'));
+
+    if (match.matchTypeIconUrl) {
+      tags.push(buildImageTag(match.matchTypeIconUrl));
     }
-    if (!tags.length) return '';
-    return `<div class="match-tags">${tags.join('')}</div>`;
+    if (match.matchLocationLogoUrl) {
+      tags.push(buildImageTag(match.matchLocationLogoUrl));
+    }
+
+    return tags.length ? `<div class="match-tags">${tags.join('')}</div>` : '';
+  }
+
+  function buildImageTag(imageUrl) {
+    const srcAttr = imageUrl ? ` src="${escapeHtml(imageUrl)}"` : '';
+    return `<span class="match-tag match-tag--logo"><img${srcAttr} alt=""></span>`;
+  }
+
+  function buildTextTag(label, extraClass = '') {
+    const safeLabel = escapeHtml(label);
+    const classes = ['match-tag', 'match-tag--text'];
+    if (extraClass) {
+      classes.push(...extraClass.split(' ').filter(Boolean));
+    }
+    return `<span class="${classes.join(' ')}">${safeLabel}</span>`;
   }
 
   function createMatchCard(m) {
@@ -357,15 +437,6 @@
       </div>
 
       ${renderMetaTags(m)}
-
-      <div class="match-meta">
-        <span>${formatDate(m.lastTimestamp)}</span>
-        <span>#${m.matchId}</span>
-      </div>
-
-      <div class="match-note">
-        ${m.note ? escapeHtml(m.note) : '<em>No note</em>'}
-      </div>
     `;
 
     const snap = m.lastSnapshot || {};
@@ -373,10 +444,25 @@
     const sets = parseSets(snap.sets);
 
     const setCols = card.querySelectorAll('.sb-set-col');
+    setCols.forEach((col) => {
+      col.style.display = '';
+      col.children[0].textContent = '-';
+      col.children[1].textContent = '-';
+    });
+
     sets.forEach((s, i) => {
-      if (!setCols[i]) return;
+      if (!setCols[i] || !s) return;
       setCols[i].children[0].textContent = s.t1;
       setCols[i].children[1].textContent = s.t2;
+    });
+
+    setCols.forEach((col, i) => {
+      const score = sets[i];
+      const top = score?.t1 ?? col.children[0].textContent;
+      const bottom = score?.t2 ?? col.children[1].textContent;
+      if (shouldHideSetForFinishedMatch(m, top, bottom)) {
+        col.style.display = 'none';
+      }
     });
 
     card.querySelector('.sb-point-top').textContent = pts.team1 ?? '0';

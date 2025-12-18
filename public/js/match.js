@@ -22,8 +22,14 @@ const state = {
   currentNames: ["P1", "P2", "P3", "P4"],
   currentMatchId: null,
   matchNote: "",
-  matchType: "",
-  matchLocation: ""
+  matchType: null,
+  matchLocation: null,
+  matchTypeOptions: [],
+  matchLocationOptions: [],
+  matchStatus: null,
+  winnerTeam: null,
+  finishedAt: null,
+  isMatchFinished: false
 };
 
 const dom = {
@@ -58,12 +64,16 @@ const dom = {
   playerStatsBody: document.getElementById("playerStatsBody"),
   timeStatsBody: document.getElementById("timeStatsBody"),
   notePanel: document.getElementById("notePanel"),
+  matchTypeIcon: document.getElementById("matchTypeIcon"),
+  matchLocationLogo: document.getElementById("matchLocationLogo"),
   matchTypeDisplay: document.getElementById("matchTypeDisplay"),
   matchLocationDisplay: document.getElementById("matchLocationDisplay"),
   noteDisplay: document.getElementById("noteDisplay"),
   matchMetaForm: document.getElementById("matchMetaForm"),
-  matchTypeInput: document.getElementById("matchTypeInput"),
-  matchLocationInput: document.getElementById("matchLocationInput"),
+  matchTypeSelect: document.getElementById("matchTypeSelect"),
+  matchLocationSelect: document.getElementById("matchLocationSelect"),
+  matchTypeNewInput: document.getElementById("matchTypeNewInput"),
+  matchLocationNewInput: document.getElementById("matchLocationNewInput"),
   noteInput: document.getElementById("noteInput"),
   saveMetaBtn: document.getElementById("saveMetaBtn"),
   timelineChart: document.getElementById("timelineChart"),
@@ -71,9 +81,21 @@ const dom = {
 };
 
 const setCells = [
-  { t1: document.getElementById("set1T1"), t2: document.getElementById("set1T2") },
-  { t1: document.getElementById("set2T1"), t2: document.getElementById("set2T2") },
-  { t1: document.getElementById("set3T1"), t2: document.getElementById("set3T2") }
+  {
+    root: document.getElementById("setCol1"),
+    t1: document.getElementById("set1T1"),
+    t2: document.getElementById("set1T2")
+  },
+  {
+    root: document.getElementById("setCol2"),
+    t1: document.getElementById("set2T1"),
+    t2: document.getElementById("set2T2")
+  },
+  {
+    root: document.getElementById("setCol3"),
+    t1: document.getElementById("set3T1"),
+    t2: document.getElementById("set3T2")
+  }
 ];
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -92,6 +114,8 @@ function wireEventListeners() {
 
   dom.editMetaBtn?.addEventListener("click", () => toggleMatchMetaForm());
   dom.saveMetaBtn?.addEventListener("click", handleSaveMatchMeta);
+  dom.matchTypeSelect?.addEventListener("change", () => handleMetaSelectChange("type"));
+  dom.matchLocationSelect?.addEventListener("change", () => handleMetaSelectChange("location"));
 
   dom.loadBtn?.addEventListener("click", handleManualLoad);
 
@@ -143,7 +167,12 @@ async function autoLoadFromServer(matchId) {
     updateMatchMeta({
       note: data.note,
       matchType: data.matchType,
-      matchLocation: data.matchLocation
+      matchLocation: data.matchLocation,
+      matchTypeOptions: data.matchTypeOptions,
+      matchLocationOptions: data.matchLocationOptions,
+      status: data.status,
+      winnerTeam: data.winnerTeam,
+      finishedAt: data.finishedAt
     });
     showMainView();
     syncSlider();
@@ -178,32 +207,153 @@ function applyDbNames(playersFromDb) {
 }
 
 function getMetaButtonLabel() {
-  return state.matchType || state.matchLocation || state.matchNote ? "Edit match info" : "Add match info";
+  const hasMeta =
+    Boolean(state.matchNote && state.matchNote.trim()) ||
+    Boolean(state.matchType) ||
+    Boolean(state.matchLocation);
+  return hasMeta ? "Edit match info" : "Add match info";
 }
 
 function updateMatchMeta(meta = {}) {
-  state.matchNote = typeof meta.note === "string" ? meta.note : "";
-  state.matchType = typeof meta.matchType === "string" ? meta.matchType : meta.matchType || "";
-  state.matchLocation =
-    typeof meta.matchLocation === "string" ? meta.matchLocation : meta.matchLocation || "";
+  if (Object.prototype.hasOwnProperty.call(meta, "note")) {
+    state.matchNote = typeof meta.note === "string" ? meta.note : "";
+  }
+  if (Object.prototype.hasOwnProperty.call(meta, "matchType")) {
+    state.matchType = meta.matchType ? { ...meta.matchType } : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(meta, "matchLocation")) {
+    state.matchLocation = meta.matchLocation ? { ...meta.matchLocation } : null;
+  }
+  if (Array.isArray(meta.matchTypeOptions)) {
+    state.matchTypeOptions = meta.matchTypeOptions.map((opt) => ({
+      id: opt.id,
+      name: opt.name,
+      iconUrl: opt.iconUrl || null
+    }));
+  }
+  if (Array.isArray(meta.matchLocationOptions)) {
+    state.matchLocationOptions = meta.matchLocationOptions.map((opt) => ({
+      id: opt.id,
+      name: opt.name,
+      logoUrl: opt.logoUrl || null
+    }));
+  }
+  if (Object.prototype.hasOwnProperty.call(meta, "status")) {
+    state.matchStatus = meta.status || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(meta, "winnerTeam")) {
+    const winner = Number(meta.winnerTeam);
+    state.winnerTeam = Number.isFinite(winner) ? winner : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(meta, "finishedAt")) {
+    state.finishedAt = meta.finishedAt || null;
+  }
 
+  state.isMatchFinished = state.matchStatus === "finished";
+
+  syncMatchMetaDisplay();
+  if (dom.matchMetaForm?.style.display === "block") {
+    syncMatchMetaForm();
+  }
+}
+
+function syncMatchMetaDisplay() {
   if (dom.noteDisplay) {
     dom.noteDisplay.textContent = state.matchNote || "—";
   }
   if (dom.matchTypeDisplay) {
-    dom.matchTypeDisplay.textContent = state.matchType || "—";
+    dom.matchTypeDisplay.textContent = state.matchType?.name || "—";
   }
   if (dom.matchLocationDisplay) {
-    dom.matchLocationDisplay.textContent = state.matchLocation || "—";
+    dom.matchLocationDisplay.textContent = state.matchLocation?.name || "—";
   }
 
-  if (dom.matchTypeInput) dom.matchTypeInput.value = state.matchType || "";
-  if (dom.matchLocationInput) dom.matchLocationInput.value = state.matchLocation || "";
-  if (dom.noteInput) dom.noteInput.value = state.matchNote || "";
+  if (dom.matchTypeIcon) {
+    if (state.matchType?.iconUrl) {
+      dom.matchTypeIcon.src = state.matchType.iconUrl;
+      dom.matchTypeIcon.style.display = "inline-block";
+    } else {
+      dom.matchTypeIcon.removeAttribute("src");
+      dom.matchTypeIcon.style.display = "none";
+    }
+  }
+
+  if (dom.matchLocationLogo) {
+    if (state.matchLocation?.logoUrl) {
+      dom.matchLocationLogo.src = state.matchLocation.logoUrl;
+      dom.matchLocationLogo.style.display = "inline-block";
+    } else {
+      dom.matchLocationLogo.removeAttribute("src");
+      dom.matchLocationLogo.style.display = "none";
+    }
+  }
 
   if (dom.editMetaBtn && dom.matchMetaForm?.style.display !== "block") {
     dom.editMetaBtn.textContent = getMetaButtonLabel();
   }
+}
+
+function populateMetaSelect(selectEl, options, currentId, emptyLabel) {
+  if (!selectEl) return;
+  selectEl.innerHTML = "";
+  const defaultOpt = document.createElement("option");
+  defaultOpt.value = "";
+  defaultOpt.textContent = emptyLabel;
+  selectEl.appendChild(defaultOpt);
+
+  options.forEach((opt) => {
+    const optionEl = document.createElement("option");
+    optionEl.value = String(opt.id);
+    optionEl.textContent = opt.name;
+    selectEl.appendChild(optionEl);
+  });
+
+  const newOpt = document.createElement("option");
+  newOpt.value = "__new__";
+  newOpt.textContent = "Add new...";
+  selectEl.appendChild(newOpt);
+
+  if (currentId) {
+    selectEl.value = String(currentId);
+  } else {
+    selectEl.value = "";
+  }
+}
+
+function handleMetaSelectChange(kind) {
+  const select = kind === "type" ? dom.matchTypeSelect : dom.matchLocationSelect;
+  const input = kind === "type" ? dom.matchTypeNewInput : dom.matchLocationNewInput;
+  if (!select || !input) return;
+  const isNew = select.value === "__new__";
+  input.style.display = isNew ? "block" : "none";
+  if (!isNew) input.value = "";
+  if (isNew) {
+    input.focus();
+  }
+}
+
+function syncMatchMetaForm() {
+  if (dom.matchTypeSelect) {
+    populateMetaSelect(
+      dom.matchTypeSelect,
+      state.matchTypeOptions,
+      state.matchType?.id || null,
+      "No match type"
+    );
+  }
+  if (dom.matchLocationSelect) {
+    populateMetaSelect(
+      dom.matchLocationSelect,
+      state.matchLocationOptions,
+      state.matchLocation?.id || null,
+      "No location"
+    );
+  }
+  if (dom.noteInput) {
+    dom.noteInput.value = state.matchNote || "";
+  }
+  handleMetaSelectChange("type");
+  handleMetaSelectChange("location");
 }
 
 function toggleMatchMetaForm(force) {
@@ -215,9 +365,10 @@ function toggleMatchMetaForm(force) {
     dom.editMetaBtn.textContent = show ? "Close match info editor" : getMetaButtonLabel();
   }
   if (show) {
-    if (dom.matchTypeInput) dom.matchTypeInput.value = state.matchType || "";
-    if (dom.matchLocationInput) dom.matchLocationInput.value = state.matchLocation || "";
-    if (dom.noteInput) dom.noteInput.value = state.matchNote || "";
+    syncMatchMetaForm();
+  } else {
+    if (dom.matchTypeNewInput) dom.matchTypeNewInput.value = "";
+    if (dom.matchLocationNewInput) dom.matchLocationNewInput.value = "";
   }
 }
 
@@ -226,10 +377,52 @@ async function handleSaveMatchMeta() {
   clearError();
 
   const payload = {
-    note: dom.noteInput?.value ?? "",
-    matchType: dom.matchTypeInput?.value ?? "",
-    matchLocation: dom.matchLocationInput?.value ?? ""
+    note: dom.noteInput?.value ?? ""
   };
+
+  if (dom.matchTypeSelect) {
+    const selection = dom.matchTypeSelect.value;
+    if (selection === "__new__") {
+      const newName = (dom.matchTypeNewInput?.value || "").trim();
+      if (!newName) {
+        setError("Enter a match type name.");
+        return;
+      }
+      payload.matchTypeName = newName;
+      payload.matchTypeId = null;
+    } else if (selection === "") {
+      payload.matchTypeId = null;
+    } else {
+      const parsed = Number(selection);
+      if (!Number.isFinite(parsed)) {
+        setError("Invalid match type selected.");
+        return;
+      }
+      payload.matchTypeId = parsed;
+    }
+  }
+
+  if (dom.matchLocationSelect) {
+    const selection = dom.matchLocationSelect.value;
+    if (selection === "__new__") {
+      const newName = (dom.matchLocationNewInput?.value || "").trim();
+      if (!newName) {
+        setError("Enter a location name.");
+        return;
+      }
+      payload.matchLocationName = newName;
+      payload.matchLocationId = null;
+    } else if (selection === "") {
+      payload.matchLocationId = null;
+    } else {
+      const parsed = Number(selection);
+      if (!Number.isFinite(parsed)) {
+        setError("Invalid location selected.");
+        return;
+      }
+      payload.matchLocationId = parsed;
+    }
+  }
 
   try {
     const res = await fetch(`/api/match/${state.currentMatchId}/note`, {
@@ -244,8 +437,13 @@ async function handleSaveMatchMeta() {
 
     updateMatchMeta({
       note: data.note ?? payload.note,
-      matchType: data.matchType ?? payload.matchType,
-      matchLocation: data.matchLocation ?? payload.matchLocation
+      matchType: data.matchType ?? null,
+      matchLocation: data.matchLocation ?? null,
+      matchTypeOptions: data.matchTypeOptions || state.matchTypeOptions,
+      matchLocationOptions: data.matchLocationOptions || state.matchLocationOptions,
+      status: data.status ?? state.matchStatus,
+      winnerTeam: data.winnerTeam ?? state.winnerTeam,
+      finishedAt: data.finishedAt ?? state.finishedAt
     });
     toggleMatchMetaForm(false);
     setStatus("Match info saved.");
@@ -320,7 +518,16 @@ function handleManualLoad() {
   setStatus(`Loaded ${state.snapshots.length} payloads for match ${matchId ?? "?"}.`);
   showMainView();
   state.visibleSnapshots = state.snapshots.slice();
-  updateMatchMeta();
+  updateMatchMeta({
+    note: "",
+    matchType: null,
+    matchLocation: null,
+    matchTypeOptions: [],
+    matchLocationOptions: [],
+    status: null,
+    winnerTeam: null,
+    finishedAt: null
+  });
   syncSlider();
   buildFromVisible();
 }
@@ -418,7 +625,34 @@ function renderSetColumns(snap) {
     const bottom = setScore && setScore.team2 != null ? setScore.team2 : "-";
     column.t1.textContent = top;
     column.t2.textContent = bottom;
+    if (column.root) {
+      const hideColumn =
+        state.isMatchFinished && shouldHideSetScore(top, bottom);
+      column.root.style.display = hideColumn ? "none" : "";
+    }
   }
+}
+
+function shouldHideSetScore(top, bottom) {
+  const normalize = (value) => {
+    if (value == null) return null;
+    if (value === "-" || value === "—") return null;
+    const num = Number(value);
+    if (!Number.isNaN(num)) return num;
+    return value;
+  };
+
+  const topNorm = normalize(top);
+  const bottomNorm = normalize(bottom);
+  const bothMissing = topNorm == null && bottomNorm == null;
+  const bothDash = (top === "-" || top == null) && (bottom === "-" || bottom == null);
+  const bothZero =
+    typeof topNorm === "number" &&
+    typeof bottomNorm === "number" &&
+    topNorm === 0 &&
+    bottomNorm === 0;
+
+  return bothMissing || bothDash || bothZero;
 }
 
 function renderPointsAndServer(snap) {

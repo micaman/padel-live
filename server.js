@@ -32,9 +32,183 @@ function normalizeText(value) {
   return trimmed.length ? trimmed : null;
 }
 
-function slugifyPlayerName(value) {
+function slugifyText(value) {
   const normalized = normalizeText(value);
-  return normalized ? normalized.toLowerCase() : null;
+  return normalized ? normalized.replace(/\s+/g, ' ').toLowerCase() : null;
+}
+
+function slugifyPlayerName(value) {
+  return slugifyText(value);
+}
+
+function parseNullableId(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatMatchTypeRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    iconUrl: row.icon_url || null,
+  };
+}
+
+function formatMatchLocationRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    logoUrl: row.logo_url || null,
+  };
+}
+
+async function fetchMatchTypeOptions() {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('match_types')
+      .select('id, name, icon_url')
+      .order('name', { ascending: true });
+    if (error) {
+      console.error('Supabase match_types select error:', error);
+      return [];
+    }
+    return (data || []).map(formatMatchTypeRow);
+  } catch (e) {
+    console.error('Supabase fetchMatchTypeOptions exception:', e);
+    return [];
+  }
+}
+
+async function fetchMatchLocationOptions() {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from('match_locations')
+      .select('id, name, logo_url')
+      .order('name', { ascending: true });
+    if (error) {
+      console.error('Supabase match_locations select error:', error);
+      return [];
+    }
+    return (data || []).map(formatMatchLocationRow);
+  } catch (e) {
+    console.error('Supabase fetchMatchLocationOptions exception:', e);
+    return [];
+  }
+}
+
+async function ensureMatchTypeByName(name) {
+  if (!supabase) return null;
+  const normalized = normalizeText(name);
+  const slug = slugifyText(name);
+  if (!normalized || !slug) return null;
+  const now = new Date().toISOString();
+  try {
+    const { data, error } = await supabase
+      .from('match_types')
+      .upsert(
+        { name: normalized, slug, updated_at: now },
+        { onConflict: 'slug' }
+      )
+      .select('id, name, icon_url')
+      .single();
+    if (error) {
+      console.error('Supabase match_types upsert error:', error);
+      return null;
+    }
+    return formatMatchTypeRow(data);
+  } catch (e) {
+    console.error('Supabase ensureMatchTypeByName exception:', e);
+    return null;
+  }
+}
+
+async function ensureMatchLocationByName(name) {
+  if (!supabase) return null;
+  const normalized = normalizeText(name);
+  const slug = slugifyText(name);
+  if (!normalized || !slug) return null;
+  const now = new Date().toISOString();
+  try {
+    const { data, error } = await supabase
+      .from('match_locations')
+      .upsert(
+        { name: normalized, slug, updated_at: now },
+        { onConflict: 'slug' }
+      )
+      .select('id, name, logo_url')
+      .single();
+    if (error) {
+      console.error('Supabase match_locations upsert error:', error);
+      return null;
+    }
+    return formatMatchLocationRow(data);
+  } catch (e) {
+    console.error('Supabase ensureMatchLocationByName exception:', e);
+    return null;
+  }
+}
+
+function determineWinnerTeam(match) {
+  if (!match) return null;
+  const sets = match.sets || {};
+  const games = match.games || {};
+  const points = match.points || {};
+
+  const t1Sets = Number.isFinite(sets.team1) ? sets.team1 : null;
+  const t2Sets = Number.isFinite(sets.team2) ? sets.team2 : null;
+  if (t1Sets != null && t2Sets != null && t1Sets !== t2Sets) {
+    return t1Sets > t2Sets ? 1 : 2;
+  }
+
+  const t1Games = Number.isFinite(games.team1) ? games.team1 : null;
+  const t2Games = Number.isFinite(games.team2) ? games.team2 : null;
+  if (t1Games != null && t2Games != null && t1Games !== t2Games) {
+    return t1Games > t2Games ? 1 : 2;
+  }
+
+  const t1Points = Number(points.team1);
+  const t2Points = Number(points.team2);
+  if (Number.isFinite(t1Points) && Number.isFinite(t2Points) && t1Points !== t2Points) {
+    return t1Points > t2Points ? 1 : 2;
+  }
+
+  return null;
+}
+
+async function persistMatchStatus(matchId, { status, winnerTeam, finishedAt } = {}) {
+  if (!supabase || !status) return;
+
+  const payload = {
+    match_id: matchId,
+    status,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (winnerTeam !== undefined) {
+    payload.winner_team = winnerTeam ?? null;
+  }
+  if (finishedAt !== undefined) {
+    payload.finished_at = finishedAt ?? null;
+  } else if (status === 'finished') {
+    payload.finished_at = new Date().toISOString();
+  }
+
+  try {
+    const { error } = await supabase
+      .from('matches')
+      .upsert(payload, { onConflict: 'match_id' });
+    if (error) {
+      console.error('Supabase matches status upsert error:', error);
+    }
+  } catch (e) {
+    console.error('Supabase persistMatchStatus exception:', e);
+  }
 }
 
 async function persistMatchPlayers(matchId, entries) {
@@ -389,6 +563,22 @@ app.post('/api/update', async (req, res) => {
     }
   }
 
+  const normalizedStatus =
+    typeof body.status === 'string' ? body.status.toLowerCase() : null;
+  if (normalizedStatus === 'finished') {
+    match.status = 'finished';
+    const winnerTeam = determineWinnerTeam(match);
+    const finishedAt =
+      body.timestamp != null
+        ? new Date(Number(body.timestamp) * 1000).toISOString()
+        : new Date().toISOString();
+    await persistMatchStatus(matchId, {
+      status: 'finished',
+      winnerTeam,
+      finishedAt,
+    });
+  }
+
   return res.json({ ok: true });
 });
 
@@ -413,13 +603,35 @@ app.get('/api/match/:id/history', async (req, res) => {
   }
 
   try {
-    const { data: events, error } = await supabase
-      .from('watch_events')
-      .select('id, raw, watch_timestamp, received_at')
-      .eq('match_id', matchId)
-      .order('watch_timestamp', { ascending: true, nullsFirst: true })
-      .order('id', { ascending: true });
+    const [
+      eventsRes,
+      playersRes,
+      matchMetaRes,
+      typeOptions,
+      locationOptions,
+    ] = await Promise.all([
+      supabase
+        .from('watch_events')
+        .select('id, raw, watch_timestamp, received_at')
+        .eq('match_id', matchId)
+        .order('watch_timestamp', { ascending: true, nullsFirst: true })
+        .order('id', { ascending: true }),
+      supabase
+        .from('match_players')
+        .select('team, slot, player:players(id, name)')
+        .eq('match_id', matchId)
+        .order('team', { ascending: true })
+        .order('slot', { ascending: true }),
+      supabase
+        .from('matches')
+        .select('note, match_type_id, match_location_id, status, winner_team, finished_at')
+        .eq('match_id', matchId)
+        .maybeSingle(),
+      fetchMatchTypeOptions(),
+      fetchMatchLocationOptions(),
+    ]);
 
+    const { data: events, error } = eventsRes;
     if (error) {
       console.error('Supabase watch_events select error:', error);
       return res.status(500).json({ error: 'Failed to load history' });
@@ -427,27 +639,23 @@ app.get('/api/match/:id/history', async (req, res) => {
 
     const snapshots = (events || []).map((e) => e.raw);
 
-    const { data: playerRows, error: pErr } = await supabase
-      .from('match_players')
-      .select('team, slot, player:players(id, name)')
-      .eq('match_id', matchId)
-      .order('team', { ascending: true })
-      .order('slot', { ascending: true });
-
+    const { data: playerRows, error: pErr } = playersRes;
     if (pErr) {
       console.error('Supabase match_players select error:', pErr);
     }
 
-    const { data: matchMeta, error: mErr } = await supabase
-      .from('matches')
-      .select('note, match_type, match_location')
-      .eq('match_id', matchId)
-      .maybeSingle();
-
+    const { data: matchMeta, error: mErr } = matchMetaRes;
     if (mErr && mErr.code !== 'PGRST116') {
       // ignore "no rows" error
       console.error('Supabase matches select error:', mErr);
     }
+
+    const matchType =
+      typeOptions.find((opt) => opt.id === matchMeta?.match_type_id) || null;
+    const matchLocation =
+      locationOptions.find(
+        (opt) => opt.id === matchMeta?.match_location_id
+      ) || null;
 
     return res.json({
       matchId,
@@ -460,8 +668,13 @@ app.get('/api/match/:id/history', async (req, res) => {
           playerId: row.player?.id || null,
         })) || [],
       note: matchMeta?.note || null,
-      matchType: matchMeta?.match_type || null,
-      matchLocation: matchMeta?.match_location || null,
+      matchType,
+      matchLocation,
+      status: matchMeta?.status || null,
+      winnerTeam: matchMeta?.winner_team ?? null,
+      finishedAt: matchMeta?.finished_at || null,
+      matchTypeOptions: typeOptions,
+      matchLocationOptions: locationOptions,
     });
   } catch (e) {
     console.error('Supabase /api/match/:id/history exception:', e);
@@ -472,19 +685,57 @@ app.get('/api/match/:id/history', async (req, res) => {
 // Set / update note for a match
 app.post('/api/match/:id/note', async (req, res) => {
   const matchId = String(req.params.id);
-  const { note } = req.body || {};
+  const body = req.body || {};
+  const { note } = body;
 
-  const matchType =
-    Object.prototype.hasOwnProperty.call(req.body || {}, 'matchType')
-      ? normalizeText(req.body.matchType)
-      : Object.prototype.hasOwnProperty.call(req.body || {}, 'match_type')
-      ? normalizeText(req.body.match_type)
+  const matchTypeIdRaw = Object.prototype.hasOwnProperty.call(
+    body,
+    'matchTypeId'
+  )
+    ? body.matchTypeId
+    : Object.prototype.hasOwnProperty.call(body, 'match_type_id')
+    ? body.match_type_id
+    : undefined;
+
+  const matchTypeNameRaw = Object.prototype.hasOwnProperty.call(
+    body,
+    'matchTypeName'
+  )
+    ? body.matchTypeName
+    : Object.prototype.hasOwnProperty.call(body, 'match_type_name')
+    ? body.match_type_name
+    : undefined;
+
+  const matchLocationIdRaw = Object.prototype.hasOwnProperty.call(
+    body,
+    'matchLocationId'
+  )
+    ? body.matchLocationId
+    : Object.prototype.hasOwnProperty.call(body, 'match_location_id')
+    ? body.match_location_id
+    : undefined;
+
+  const matchLocationNameRaw = Object.prototype.hasOwnProperty.call(
+    body,
+    'matchLocationName'
+  )
+    ? body.matchLocationName
+    : Object.prototype.hasOwnProperty.call(body, 'match_location_name')
+    ? body.match_location_name
+    : undefined;
+
+  const matchTypeId =
+    matchTypeIdRaw !== undefined ? parseNullableId(matchTypeIdRaw) : undefined;
+  const matchTypeName =
+    matchTypeNameRaw !== undefined ? normalizeText(matchTypeNameRaw) : undefined;
+
+  const matchLocationId =
+    matchLocationIdRaw !== undefined
+      ? parseNullableId(matchLocationIdRaw)
       : undefined;
-  const matchLocation =
-    Object.prototype.hasOwnProperty.call(req.body || {}, 'matchLocation')
-      ? normalizeText(req.body.matchLocation)
-      : Object.prototype.hasOwnProperty.call(req.body || {}, 'match_location')
-      ? normalizeText(req.body.match_location)
+  const matchLocationName =
+    matchLocationNameRaw !== undefined
+      ? normalizeText(matchLocationNameRaw)
       : undefined;
 
   if (!supabase) {
@@ -497,25 +748,49 @@ app.post('/api/match/:id/note', async (req, res) => {
       match_id: matchId,
       updated_at: now,
     };
+    let updatedFields = 0;
+    let matchTypeRow = null;
+    let matchLocationRow = null;
 
-    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'note')) {
+    if (Object.prototype.hasOwnProperty.call(body, 'note')) {
       payload.note = typeof note === 'string' ? note : null;
-    }
-    if (matchType !== undefined) {
-      payload.match_type = matchType;
-    }
-    if (matchLocation !== undefined) {
-      payload.match_location = matchLocation;
+      updatedFields++;
     }
 
-    if (Object.keys(payload).length === 2) {
+    if (matchTypeName !== undefined) {
+      updatedFields++;
+      if (matchTypeName) {
+        matchTypeRow = await ensureMatchTypeByName(matchTypeName);
+        payload.match_type_id = matchTypeRow?.id || null;
+      } else {
+        payload.match_type_id = null;
+      }
+    } else if (matchTypeId !== undefined) {
+      updatedFields++;
+      payload.match_type_id = matchTypeId ?? null;
+    }
+
+    if (matchLocationName !== undefined) {
+      updatedFields++;
+      if (matchLocationName) {
+        matchLocationRow = await ensureMatchLocationByName(matchLocationName);
+        payload.match_location_id = matchLocationRow?.id || null;
+      } else {
+        payload.match_location_id = null;
+      }
+    } else if (matchLocationId !== undefined) {
+      updatedFields++;
+      payload.match_location_id = matchLocationId ?? null;
+    }
+
+    if (updatedFields === 0) {
       return res.status(400).json({ error: 'No metadata fields to update' });
     }
 
     const { data, error } = await supabase
       .from('matches')
       .upsert(payload, { onConflict: 'match_id' })
-      .select('note, match_type, match_location')
+      .select('note, match_type_id, match_location_id, status, winner_team, finished_at')
       .single();
 
     if (error) {
@@ -523,11 +798,30 @@ app.post('/api/match/:id/note', async (req, res) => {
       return res.status(500).json({ error: 'Failed to save match metadata' });
     }
 
+    const [typeOptions, locationOptions] = await Promise.all([
+      fetchMatchTypeOptions(),
+      fetchMatchLocationOptions(),
+    ]);
+
+    const resolvedType =
+      matchTypeRow ||
+      typeOptions.find((opt) => opt.id === data.match_type_id) ||
+      null;
+    const resolvedLocation =
+      matchLocationRow ||
+      locationOptions.find((opt) => opt.id === data.match_location_id) ||
+      null;
+
     return res.json({
       ok: true,
       note: data.note,
-      matchType: data.match_type,
-      matchLocation: data.match_location,
+      matchType: resolvedType,
+      matchLocation: resolvedLocation,
+      status: data.status || null,
+      winnerTeam: data.winner_team ?? null,
+      finishedAt: data.finished_at || null,
+      matchTypeOptions: typeOptions,
+      matchLocationOptions: locationOptions,
     });
   } catch (e) {
     console.error('Supabase /api/match/:id/note exception:', e);
@@ -591,18 +885,54 @@ app.get('/api/db-matches', async (req, res) => {
     // notes
     const { data: matchesMeta, error: mErr } = await supabase
       .from('matches')
-      .select('match_id, note, match_type, match_location')
+      .select('match_id, note, match_type_id, match_location_id, status, winner_team')
       .in('match_id', matchIds);
 
     if (mErr) console.error('Supabase matches select error:', mErr);
 
     const metaByMatch = new Map();
+    const typeIds = new Set();
+    const locationIds = new Set();
     for (const m of matchesMeta || []) {
+      if (m.match_type_id) typeIds.add(m.match_type_id);
+      if (m.match_location_id) locationIds.add(m.match_location_id);
       metaByMatch.set(m.match_id, {
         note: m.note || null,
-        matchType: m.match_type || null,
-        matchLocation: m.match_location || null,
+        matchTypeId: m.match_type_id || null,
+        matchLocationId: m.match_location_id || null,
+        status: m.status || null,
+        winnerTeam: m.winner_team ?? null,
       });
+    }
+
+    let typeById = new Map();
+    if (typeIds.size) {
+      const { data: typeRows, error: typeErr } = await supabase
+        .from('match_types')
+        .select('id, name, icon_url')
+        .in('id', Array.from(typeIds));
+      if (typeErr) {
+        console.error('Supabase match_types select error:', typeErr);
+      } else {
+        typeById = new Map(
+          (typeRows || []).map((row) => [row.id, formatMatchTypeRow(row)])
+        );
+      }
+    }
+
+    let locationById = new Map();
+    if (locationIds.size) {
+      const { data: locationRows, error: locationErr } = await supabase
+        .from('match_locations')
+        .select('id, name, logo_url')
+        .in('id', Array.from(locationIds));
+      if (locationErr) {
+        console.error('Supabase match_locations select error:', locationErr);
+      } else {
+        locationById = new Map(
+          (locationRows || []).map((row) => [row.id, formatMatchLocationRow(row)])
+        );
+      }
     }
 
     list = list.map((m) => {
@@ -616,13 +946,23 @@ app.get('/api/db-matches', async (req, res) => {
         .sort((a, b) => a.slot - b.slot)
         .map((p) => p.player?.name);
 
+      const meta = metaByMatch.get(m.matchId) || {};
+      const typeRow = meta.matchTypeId ? typeById.get(meta.matchTypeId) : null;
+      const locationRow = meta.matchLocationId
+        ? locationById.get(meta.matchLocationId)
+        : null;
+
       return {
         ...m,
         team1Name: t1.length ? t1.join(' / ') : 'Team 1',
         team2Name: t2.length ? t2.join(' / ') : 'Team 2',
-        note: metaByMatch.get(m.matchId)?.note || null,
-        matchType: metaByMatch.get(m.matchId)?.matchType || null,
-        matchLocation: metaByMatch.get(m.matchId)?.matchLocation || null,
+        note: meta.note || null,
+        matchType: typeRow?.name || null,
+        matchTypeIconUrl: typeRow?.iconUrl || null,
+        matchLocation: locationRow?.name || null,
+        matchLocationLogoUrl: locationRow?.logoUrl || null,
+        status: meta.status || null,
+        winnerTeam: meta.winnerTeam ?? null,
       };
     });
 
