@@ -80,7 +80,7 @@
 
       <div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center;">
         <button id="editNamesBtn">Edit names</button>
-        <button id="addNoteBtn">Add note</button>
+        <button id="editMetaBtn">Add match info</button>
       </div>
 
       <!-- NAMES + DEBUG PANEL -->
@@ -117,8 +117,30 @@
 
       <!-- NOTE PANEL -->
       <div class="panel" id="notePanel">
-        <h3>Match Note</h3>
-        <div id="noteDisplay" style="font-size:13px;white-space:pre-wrap;min-height:1em;"></div>
+        <h3>Match Info</h3>
+        <div class="match-meta-display">
+          <div class="match-meta-row">
+            <span class="match-meta-label">Type</span>
+            <span class="match-meta-value" id="matchTypeDisplay">—</span>
+          </div>
+          <div class="match-meta-row">
+            <span class="match-meta-label">Location</span>
+            <span class="match-meta-value" id="matchLocationDisplay">—</span>
+          </div>
+          <div class="match-meta-row note-row">
+            <span class="match-meta-label">Note</span>
+            <div class="match-meta-note" id="noteDisplay">—</div>
+          </div>
+        </div>
+        <div id="matchMetaForm" class="match-meta-form" style="display:none;">
+          <label for="matchTypeInput">Match Type</label>
+          <input id="matchTypeInput" placeholder="e.g. Friends Match">
+          <label for="matchLocationInput">Location</label>
+          <input id="matchLocationInput" placeholder="e.g. Golden Padel">
+          <label for="noteInput">Match Note</label>
+          <textarea id="noteInput" rows="3"></textarea>
+          <button type="button" id="saveMetaBtn">Save match info</button>
+        </div>
       </div>
 
       <!-- TEAM STATS -->

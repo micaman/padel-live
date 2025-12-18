@@ -79,6 +79,24 @@
       font-variant-numeric: tabular-nums;
     }
 
+    .match-tags {
+      margin-top: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 11px;
+    }
+
+    .match-tag {
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(247, 201, 72, 0.45);
+      background: rgba(247, 201, 72, 0.15);
+      color: #f7c948;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
     .match-note {
       margin-top: 4px;
       font-size: 12px;
@@ -251,10 +269,30 @@
   let hasMore = true;
   let loading = false;
 
+  function escapeHtml(value) {
+    if (typeof value !== 'string') return '';
+    return value.replace(/[&<>"']/g, (ch) => {
+      switch (ch) {
+        case '&':
+          return '&amp;';
+        case '<':
+          return '&lt;';
+        case '>':
+          return '&gt;';
+        case '"':
+          return '&quot;';
+        case "'":
+          return '&#39;';
+        default:
+          return ch;
+      }
+    });
+  }
+
   function formatDate(ts) {
-    if (!ts) return '–';
+    if (!ts) return '???';
     const d = new Date(ts);
-    return Number.isNaN(d.getTime()) ? '–' : d.toLocaleString();
+    return Number.isNaN(d.getTime()) ? '???' : d.toLocaleString();
   }
 
   function serverTeam(server) {
@@ -270,6 +308,18 @@
       const m = s.trim().match(/(\d+)\s*-\s*(\d+)/);
       return m ? { t1: m[1], t2: m[2] } : null;
     }).filter(Boolean);
+  }
+
+  function renderMetaTags(match) {
+    const tags = [];
+    if (match.matchType) {
+      tags.push(`<span class="match-tag">${escapeHtml(match.matchType)}</span>`);
+    }
+    if (match.matchLocation) {
+      tags.push(`<span class="match-tag">${escapeHtml(match.matchLocation)}</span>`);
+    }
+    if (!tags.length) return '';
+    return `<div class="match-tags">${tags.join('')}</div>`;
   }
 
   function createMatchCard(m) {
@@ -306,13 +356,15 @@
         </div>
       </div>
 
+      ${renderMetaTags(m)}
+
       <div class="match-meta">
         <span>${formatDate(m.lastTimestamp)}</span>
         <span>#${m.matchId}</span>
       </div>
 
       <div class="match-note">
-        ${m.note ? m.note.replace(/</g, '&lt;') : '<em>No note</em>'}
+        ${m.note ? escapeHtml(m.note) : '<em>No note</em>'}
       </div>
     `;
 

@@ -234,6 +234,63 @@ button:hover {
   opacity: 0.85;
 }
 
+.match-meta-display {
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.match-meta-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.match-meta-label {
+  min-width: 80px;
+  font-size: 11px;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.match-meta-value {
+  flex: 1;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.match-meta-note {
+  flex: 1;
+  font-size: 13px;
+  white-space: pre-wrap;
+  min-height: 1em;
+}
+
+.match-meta-form {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.match-meta-form input,
+.match-meta-form textarea {
+  width: 100%;
+  padding: 6px;
+  border-radius: 4px;
+  border: 1px solid #3b3f52;
+  background: #111217;
+  color: #fff;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.match-meta-form textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
 .names-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

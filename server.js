@@ -26,6 +26,102 @@ if (!supabase) {
 // In-memory matches: matchId -> match object (for live view, not persistence)
 const matches = new Map();
 
+function normalizeText(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+function slugifyPlayerName(value) {
+  const normalized = normalizeText(value);
+  return normalized ? normalized.toLowerCase() : null;
+}
+
+async function persistMatchPlayers(matchId, entries) {
+  if (!supabase || !Array.isArray(entries) || !entries.length) return;
+
+  const prepared = entries
+    .map((entry) => {
+      const name = normalizeText(entry.name);
+      const slug = slugifyPlayerName(entry.name);
+      return {
+        team: entry.team,
+        slot: entry.slot,
+        name,
+        slug,
+      };
+    })
+    .filter((entry) => entry.name && entry.slug);
+
+  if (!prepared.length) return;
+
+  const now = new Date().toISOString();
+  const uniqueSlugMap = new Map();
+
+  for (const entry of prepared) {
+    if (!uniqueSlugMap.has(entry.slug)) {
+      uniqueSlugMap.set(entry.slug, { name: entry.name, slug: entry.slug });
+    }
+  }
+
+  const playerRows = Array.from(uniqueSlugMap.values()).map((row) => ({
+    name: row.name,
+    slug: row.slug,
+    updated_at: now,
+  }));
+
+  try {
+    const { error: playerError } = await supabase
+      .from('players')
+      .upsert(playerRows, { onConflict: 'slug' });
+
+    if (playerError) {
+      console.error('Supabase players upsert error:', playerError);
+      return;
+    }
+
+    const { data: playersData, error: playersSelectError } = await supabase
+      .from('players')
+      .select('id, slug')
+      .in('slug', Array.from(uniqueSlugMap.keys()));
+
+    if (playersSelectError) {
+      console.error('Supabase players select error:', playersSelectError);
+      return;
+    }
+
+    const idBySlug = new Map(
+      (playersData || []).map((p) => [p.slug, p.id])
+    );
+
+    const rows = prepared
+      .map((entry) => {
+        const playerId = idBySlug.get(entry.slug);
+        if (!playerId) return null;
+        return {
+          match_id: matchId,
+          team: entry.team,
+          slot: entry.slot,
+          player_id: playerId,
+          updated_at: now,
+        };
+      })
+      .filter(Boolean);
+
+    if (!rows.length) return;
+
+    const { error: linkError } = await supabase
+      .from('match_players')
+      .upsert(rows, { onConflict: 'match_id,team,slot' });
+
+    if (linkError) {
+      console.error('Supabase match_players upsert error:', linkError);
+    }
+  } catch (e) {
+    console.error('Supabase persistMatchPlayers exception:', e);
+  }
+}
+
 function defaultPlayers() {
   return [
     { id: 't1p1', team: 1, name: 'Team 1 - Player 1' },
@@ -331,9 +427,9 @@ app.get('/api/match/:id/history', async (req, res) => {
 
     const snapshots = (events || []).map((e) => e.raw);
 
-    const { data: players, error: pErr } = await supabase
+    const { data: playerRows, error: pErr } = await supabase
       .from('match_players')
-      .select('team, slot, name')
+      .select('team, slot, player:players(id, name)')
       .eq('match_id', matchId)
       .order('team', { ascending: true })
       .order('slot', { ascending: true });
@@ -344,7 +440,7 @@ app.get('/api/match/:id/history', async (req, res) => {
 
     const { data: matchMeta, error: mErr } = await supabase
       .from('matches')
-      .select('note')
+      .select('note, match_type, match_location')
       .eq('match_id', matchId)
       .maybeSingle();
 
@@ -356,8 +452,16 @@ app.get('/api/match/:id/history', async (req, res) => {
     return res.json({
       matchId,
       snapshots,
-      players: players || [],
+      players:
+        (playerRows || []).map((row) => ({
+          team: row.team,
+          slot: row.slot,
+          name: row.player?.name || '',
+          playerId: row.player?.id || null,
+        })) || [],
       note: matchMeta?.note || null,
+      matchType: matchMeta?.match_type || null,
+      matchLocation: matchMeta?.match_location || null,
     });
   } catch (e) {
     console.error('Supabase /api/match/:id/history exception:', e);
@@ -370,31 +474,61 @@ app.post('/api/match/:id/note', async (req, res) => {
   const matchId = String(req.params.id);
   const { note } = req.body || {};
 
+  const matchType =
+    Object.prototype.hasOwnProperty.call(req.body || {}, 'matchType')
+      ? normalizeText(req.body.matchType)
+      : Object.prototype.hasOwnProperty.call(req.body || {}, 'match_type')
+      ? normalizeText(req.body.match_type)
+      : undefined;
+  const matchLocation =
+    Object.prototype.hasOwnProperty.call(req.body || {}, 'matchLocation')
+      ? normalizeText(req.body.matchLocation)
+      : Object.prototype.hasOwnProperty.call(req.body || {}, 'match_location')
+      ? normalizeText(req.body.match_location)
+      : undefined;
+
   if (!supabase) {
     return res.status(500).json({ error: 'Supabase not configured' });
   }
 
   try {
     const now = new Date().toISOString();
+    const payload = {
+      match_id: matchId,
+      updated_at: now,
+    };
+
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'note')) {
+      payload.note = typeof note === 'string' ? note : null;
+    }
+    if (matchType !== undefined) {
+      payload.match_type = matchType;
+    }
+    if (matchLocation !== undefined) {
+      payload.match_location = matchLocation;
+    }
+
+    if (Object.keys(payload).length === 2) {
+      return res.status(400).json({ error: 'No metadata fields to update' });
+    }
+
     const { data, error } = await supabase
       .from('matches')
-      .upsert(
-        {
-          match_id: matchId,
-          note: note ?? null,
-          updated_at: now,
-        },
-        { onConflict: 'match_id' }
-      )
-      .select('note')
+      .upsert(payload, { onConflict: 'match_id' })
+      .select('note, match_type, match_location')
       .single();
 
     if (error) {
       console.error('Supabase matches upsert error:', error);
-      return res.status(500).json({ error: 'Failed to save note' });
+      return res.status(500).json({ error: 'Failed to save match metadata' });
     }
 
-    return res.json({ ok: true, note: data.note });
+    return res.json({
+      ok: true,
+      note: data.note,
+      matchType: data.match_type,
+      matchLocation: data.match_location,
+    });
   } catch (e) {
     console.error('Supabase /api/match/:id/note exception:', e);
     return res.status(500).json({ error: 'Unexpected error' });
@@ -442,7 +576,7 @@ app.get('/api/db-matches', async (req, res) => {
     // names
     const { data: players, error: pErr } = await supabase
       .from('match_players')
-      .select('match_id, team, slot, name')
+      .select('match_id, team, slot, player:players(id, name)')
       .in('match_id', matchIds);
 
     if (pErr) console.error('Supabase match_players select error:', pErr);
@@ -457,30 +591,38 @@ app.get('/api/db-matches', async (req, res) => {
     // notes
     const { data: matchesMeta, error: mErr } = await supabase
       .from('matches')
-      .select('match_id, note')
+      .select('match_id, note, match_type, match_location')
       .in('match_id', matchIds);
 
     if (mErr) console.error('Supabase matches select error:', mErr);
 
-    const noteByMatch = new Map();
-    for (const m of matchesMeta || []) noteByMatch.set(m.match_id, m.note || null);
+    const metaByMatch = new Map();
+    for (const m of matchesMeta || []) {
+      metaByMatch.set(m.match_id, {
+        note: m.note || null,
+        matchType: m.match_type || null,
+        matchLocation: m.match_location || null,
+      });
+    }
 
     list = list.map((m) => {
       const ps = playersByMatch.get(m.matchId) || [];
       const t1 = ps
         .filter((p) => p.team === 1)
         .sort((a, b) => a.slot - b.slot)
-        .map((p) => p.name);
+        .map((p) => p.player?.name);
       const t2 = ps
         .filter((p) => p.team === 2)
         .sort((a, b) => a.slot - b.slot)
-        .map((p) => p.name);
+        .map((p) => p.player?.name);
 
       return {
         ...m,
         team1Name: t1.length ? t1.join(' / ') : 'Team 1',
         team2Name: t2.length ? t2.join(' / ') : 'Team 2',
-        note: noteByMatch.get(m.matchId) || null,
+        note: metaByMatch.get(m.matchId)?.note || null,
+        matchType: metaByMatch.get(m.matchId)?.matchType || null,
+        matchLocation: metaByMatch.get(m.matchId)?.matchLocation || null,
       };
     });
 
@@ -502,10 +644,12 @@ app.post('/api/match/:id/players', async (req, res) => {
 
   const match = getOrCreateMatch(matchId);
 
-  const t1p1 = team1?.p1 || match.players[0].name;
-  const t1p2 = team1?.p2 || match.players[1].name;
-  const t2p1 = team2?.p1 || match.players[2].name;
-  const t2p2 = team2?.p2 || match.players[3].name;
+  const resolveName = (input, fallback) => normalizeText(input) || fallback;
+
+  const t1p1 = resolveName(team1?.p1, match.players[0].name);
+  const t1p2 = resolveName(team1?.p2, match.players[1].name);
+  const t2p1 = resolveName(team2?.p1, match.players[2].name);
+  const t2p2 = resolveName(team2?.p2, match.players[3].name);
 
   match.players = [
     { id: 't1p1', team: 1, name: t1p1 },
@@ -514,25 +658,17 @@ app.post('/api/match/:id/players', async (req, res) => {
     { id: 't2p2', team: 2, name: t2p2 },
   ];
 
-  if (supabase) {
-    const rows = [
-      { match_id: matchId, team: 1, slot: 1, name: t1p1 },
-      { match_id: matchId, team: 1, slot: 2, name: t1p2 },
-      { match_id: matchId, team: 2, slot: 1, name: t2p1 },
-      { match_id: matchId, team: 2, slot: 2, name: t2p2 },
-    ];
+  const dbEntries = [
+    { team: 1, slot: 1, name: t1p1 },
+    { team: 1, slot: 2, name: t1p2 },
+    { team: 2, slot: 1, name: t2p1 },
+    { team: 2, slot: 2, name: t2p2 },
+  ];
 
-    try {
-      const { error } = await supabase
-        .from('match_players')
-        .upsert(rows, { onConflict: 'match_id,team,slot' });
-
-      if (error) {
-        console.error('Supabase match_players upsert error:', error);
-      }
-    } catch (e) {
-      console.error('Supabase match_players upsert exception:', e);
-    }
+  try {
+    await persistMatchPlayers(matchId, dbEntries);
+  } catch (e) {
+    console.error('Supabase match_players persist exception:', e);
   }
 
   return res.json({ ok: true, players: match.players });

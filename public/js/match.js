@@ -20,7 +20,10 @@ const state = {
   impactChart: null,
   timelineChart: null,
   currentNames: ["P1", "P2", "P3", "P4"],
-  currentMatchId: null
+  currentMatchId: null,
+  matchNote: "",
+  matchType: "",
+  matchLocation: ""
 };
 
 const dom = {
@@ -46,7 +49,7 @@ const dom = {
   t2p2Input: document.getElementById("t2p2"),
   applyNamesBtn: document.getElementById("applyNamesBtn"),
   editNamesBtn: document.getElementById("editNamesBtn"),
-  addNoteBtn: document.getElementById("addNoteBtn"),
+  editMetaBtn: document.getElementById("editMetaBtn"),
   matchLabel: document.getElementById("matchLabel"),
   setsStringDebug: document.getElementById("setsStringDebug"),
   lastPayloadDebug: document.getElementById("lastPayloadDebug"),
@@ -55,7 +58,14 @@ const dom = {
   playerStatsBody: document.getElementById("playerStatsBody"),
   timeStatsBody: document.getElementById("timeStatsBody"),
   notePanel: document.getElementById("notePanel"),
+  matchTypeDisplay: document.getElementById("matchTypeDisplay"),
+  matchLocationDisplay: document.getElementById("matchLocationDisplay"),
   noteDisplay: document.getElementById("noteDisplay"),
+  matchMetaForm: document.getElementById("matchMetaForm"),
+  matchTypeInput: document.getElementById("matchTypeInput"),
+  matchLocationInput: document.getElementById("matchLocationInput"),
+  noteInput: document.getElementById("noteInput"),
+  saveMetaBtn: document.getElementById("saveMetaBtn"),
   timelineChart: document.getElementById("timelineChart"),
   timelineEmpty: document.getElementById("timelineEmpty")
 };
@@ -80,23 +90,8 @@ function wireEventListeners() {
     dom.namesPanel.style.display = isHidden ? "block" : "none";
   });
 
-  dom.addNoteBtn?.addEventListener("click", async () => {
-    if (!state.currentMatchId) return;
-    const current = dom.noteDisplay?.textContent || "";
-    const text = window.prompt("Match note:", current);
-    if (text === null) return;
-    if (dom.noteDisplay) dom.noteDisplay.textContent = text;
-
-    try {
-      await fetch(`/api/match/${state.currentMatchId}/note`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note: text })
-      });
-    } catch (err) {
-      console.error("Failed to save note:", err);
-    }
-  });
+  dom.editMetaBtn?.addEventListener("click", () => toggleMatchMetaForm());
+  dom.saveMetaBtn?.addEventListener("click", handleSaveMatchMeta);
 
   dom.loadBtn?.addEventListener("click", handleManualLoad);
 
@@ -145,7 +140,11 @@ async function autoLoadFromServer(matchId) {
     state.visibleSnapshots = state.snapshots.slice();
 
     applyDbNames(data.players || []);
-    updateNotePanel(data.note);
+    updateMatchMeta({
+      note: data.note,
+      matchType: data.matchType,
+      matchLocation: data.matchLocation
+    });
     showMainView();
     syncSlider();
 
@@ -178,12 +177,81 @@ function applyDbNames(playersFromDb) {
   if (dom.namesPanel) dom.namesPanel.style.display = "none";
 }
 
-function updateNotePanel(note) {
+function getMetaButtonLabel() {
+  return state.matchType || state.matchLocation || state.matchNote ? "Edit match info" : "Add match info";
+}
+
+function updateMatchMeta(meta = {}) {
+  state.matchNote = typeof meta.note === "string" ? meta.note : "";
+  state.matchType = typeof meta.matchType === "string" ? meta.matchType : meta.matchType || "";
+  state.matchLocation =
+    typeof meta.matchLocation === "string" ? meta.matchLocation : meta.matchLocation || "";
+
   if (dom.noteDisplay) {
-    dom.noteDisplay.textContent = note || "";
+    dom.noteDisplay.textContent = state.matchNote || "—";
   }
-  if (dom.addNoteBtn && note) {
-    dom.addNoteBtn.textContent = "Edit note";
+  if (dom.matchTypeDisplay) {
+    dom.matchTypeDisplay.textContent = state.matchType || "—";
+  }
+  if (dom.matchLocationDisplay) {
+    dom.matchLocationDisplay.textContent = state.matchLocation || "—";
+  }
+
+  if (dom.matchTypeInput) dom.matchTypeInput.value = state.matchType || "";
+  if (dom.matchLocationInput) dom.matchLocationInput.value = state.matchLocation || "";
+  if (dom.noteInput) dom.noteInput.value = state.matchNote || "";
+
+  if (dom.editMetaBtn && dom.matchMetaForm?.style.display !== "block") {
+    dom.editMetaBtn.textContent = getMetaButtonLabel();
+  }
+}
+
+function toggleMatchMetaForm(force) {
+  if (!dom.matchMetaForm) return;
+  const isOpen = dom.matchMetaForm.style.display === "block";
+  const show = typeof force === "boolean" ? force : !isOpen;
+  dom.matchMetaForm.style.display = show ? "block" : "none";
+  if (dom.editMetaBtn) {
+    dom.editMetaBtn.textContent = show ? "Close match info editor" : getMetaButtonLabel();
+  }
+  if (show) {
+    if (dom.matchTypeInput) dom.matchTypeInput.value = state.matchType || "";
+    if (dom.matchLocationInput) dom.matchLocationInput.value = state.matchLocation || "";
+    if (dom.noteInput) dom.noteInput.value = state.matchNote || "";
+  }
+}
+
+async function handleSaveMatchMeta() {
+  if (!state.currentMatchId) return;
+  clearError();
+
+  const payload = {
+    note: dom.noteInput?.value ?? "",
+    matchType: dom.matchTypeInput?.value ?? "",
+    matchLocation: dom.matchLocationInput?.value ?? ""
+  };
+
+  try {
+    const res = await fetch(`/api/match/${state.currentMatchId}/note`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+
+    updateMatchMeta({
+      note: data.note ?? payload.note,
+      matchType: data.matchType ?? payload.matchType,
+      matchLocation: data.matchLocation ?? payload.matchLocation
+    });
+    toggleMatchMetaForm(false);
+    setStatus("Match info saved.");
+  } catch (err) {
+    console.error("Failed to save match info:", err);
+    setError(`Failed to save match info: ${err.message}`);
   }
 }
 
@@ -252,6 +320,7 @@ function handleManualLoad() {
   setStatus(`Loaded ${state.snapshots.length} payloads for match ${matchId ?? "?"}.`);
   showMainView();
   state.visibleSnapshots = state.snapshots.slice();
+  updateMatchMeta();
   syncSlider();
   buildFromVisible();
 }
