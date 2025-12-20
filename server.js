@@ -181,6 +181,25 @@ function determineWinnerTeam(match) {
   return null;
 }
 
+function isStatusOnlyEvent(raw) {
+  if (!raw || typeof raw !== 'object') return false;
+  const normalizedStatus =
+    typeof raw.status === 'string' ? raw.status.toLowerCase() : null;
+  if (normalizedStatus !== 'finished') return false;
+
+  const hasPoints = raw.points && typeof raw.points === 'object';
+  const hasSets =
+    (typeof raw.sets === 'string' && raw.sets.trim().length > 0) ||
+    (raw.sets && typeof raw.sets === 'object' && Object.keys(raw.sets).length);
+  const hasGames =
+    raw.games && typeof raw.games === 'object' && Object.keys(raw.games).length;
+  const hasPlayers = Array.isArray(raw.players) && raw.players.length > 0;
+  const hasServer =
+    typeof raw.server === 'number' || typeof raw.serverPlayer === 'number';
+
+  return !hasPoints && !hasSets && !hasGames && !hasPlayers && !hasServer;
+}
+
 async function persistMatchStatus(matchId, { status, winnerTeam, finishedAt } = {}) {
   if (!supabase || !status) return;
 
@@ -447,80 +466,87 @@ app.post('/api/update', async (req, res) => {
     return res.status(400).json({ error: 'matchId is required in payload' });
   }
 
-  const hasPoints = points !== undefined && points !== null;
-  if (!hasPoints && normalizedStatus !== 'finished') {
+  const hasPoints = points && typeof points === 'object';
+  const statusOnly = isStatusOnlyEvent(body);
+
+  if (!hasPoints && !statusOnly) {
     return res.status(400).json({
-      error: 'points are required unless status is finished',
+      error: 'points are required unless status-only finished payload',
     });
   }
 
   const matchId = String(rawMatchId);
-  const match = getOrCreateMatch(matchId);
+  const existingMatch = matches.get(matchId);
+  const match = statusOnly ? existingMatch : getOrCreateMatch(matchId);
 
-  // --- sets: can be string ("6-0 / 1-0") or object {team1,team2} ---
-  if (typeof sets === 'string') {
-    match.setsString = sets.trim();
-    match.sets = deriveSetCountsFromString(match.setsString);
-  } else if (sets && typeof sets === 'object') {
-    match.sets = {
-      team1: sets.team1 ?? match.sets.team1,
-      team2: sets.team2 ?? match.sets.team2,
-    };
-    match.setsString = `${match.sets.team1}-${match.sets.team2}`;
-  }
-
-  // games optional in new format
-  if (games && typeof games === 'object') {
-    match.games = {
-      team1: games.team1 ?? match.games.team1,
-      team2: games.team2 ?? match.games.team2,
-    };
-  }
-
-  if (points && typeof points === 'object') {
-    match.points = {
-      team1: points.team1 ?? match.points.team1,
-      team2: points.team2 ?? match.points.team2,
-    };
-  }
-
-  // --- server: team or player index ---
-  if (typeof server === 'number') {
-    match.serverPlayer = server;
-
-    let serverTeam = null;
-    if (server >= 1 && server <= 4) {
-      // players 1,2 = team1; 3,4 = team2
-      serverTeam = server <= 2 ? 1 : 2;
-    } else if (server === 1 || server === 2) {
-      // fallback: server already expressed as team
-      serverTeam = server;
+  if (!statusOnly && match) {
+    // --- sets: can be string ("6-0 / 1-0") or object {team1,team2} ---
+    if (typeof sets === 'string') {
+      match.setsString = sets.trim();
+      match.sets = deriveSetCountsFromString(match.setsString);
+    } else if (sets && typeof sets === 'object') {
+      match.sets = {
+        team1: sets.team1 ?? match.sets.team1,
+        team2: sets.team2 ?? match.sets.team2,
+      };
+      match.setsString = `${match.sets.team1}-${match.sets.team2}`;
     }
 
-    if (serverTeam === 1 || serverTeam === 2) {
-      match.server = serverTeam;
+    // games optional in new format
+    if (games && typeof games === 'object') {
+      match.games = {
+        team1: games.team1 ?? match.games.team1,
+        team2: games.team2 ?? match.games.team2,
+      };
+    }
+
+    if (points && typeof points === 'object') {
+      match.points = {
+        team1: points.team1 ?? match.points.team1,
+        team2: points.team2 ?? match.points.team2,
+      };
+    }
+
+    // --- server: team or player index ---
+    if (typeof server === 'number') {
+      match.serverPlayer = server;
+
+      let serverTeam = null;
+      if (server >= 1 && server <= 4) {
+        // players 1,2 = team1; 3,4 = team2
+        serverTeam = server <= 2 ? 1 : 2;
+      } else if (server === 1 || server === 2) {
+        // fallback: server already expressed as team
+        serverTeam = server;
+      }
+
+      if (serverTeam === 1 || serverTeam === 2) {
+        match.server = serverTeam;
+      }
+    }
+
+    // stats per player from watch
+    if (Array.isArray(players)) {
+      match.playerStats = players;
+
+      // winners - errors per player for chart
+      const diff = players.map((p) => {
+        const w = Number(p.winners || 0);
+        const e = Number(p.errors || 0);
+        return w - e;
+      });
+
+      const now = new Date().toISOString();
+      match.timeline.push({ t: now, diff });
     }
   }
 
-  // stats per player from watch
-  if (Array.isArray(players)) {
-    match.playerStats = players;
-
-    // winners - errors per player for chart
-    const diff = players.map((p) => {
-      const w = Number(p.winners || 0);
-      const e = Number(p.errors || 0);
-      return w - e;
-    });
-
-    const now = new Date().toISOString();
-    match.timeline.push({ t: now, diff });
+  if (match) {
+    match.updatedAt = new Date().toISOString();
   }
-
-  match.updatedAt = new Date().toISOString();
 
   // --- Supabase logging ---
-  if (supabase) {
+  if (supabase && !statusOnly) {
     const watchTimestamp =
       body.timestamp != null
         ? new Date(Number(body.timestamp) * 1000).toISOString()
@@ -571,8 +597,10 @@ app.post('/api/update', async (req, res) => {
   }
 
   if (normalizedStatus === 'finished') {
-    match.status = 'finished';
-    const winnerTeam = determineWinnerTeam(match);
+    if (match) {
+      match.status = 'finished';
+    }
+    const winnerTeam = match ? determineWinnerTeam(match) : null;
     const finishedAt =
       body.timestamp != null
         ? new Date(Number(body.timestamp) * 1000).toISOString()
@@ -642,7 +670,10 @@ app.get('/api/match/:id/history', async (req, res) => {
       return res.status(500).json({ error: 'Failed to load history' });
     }
 
-    const snapshots = (events || []).map((e) => e.raw);
+    const filteredEvents = (events || []).filter(
+      (event) => !isStatusOnlyEvent(event.raw)
+    );
+    const snapshots = filteredEvents.map((e) => e.raw);
 
     const { data: playerRows, error: pErr } = playersRes;
     if (pErr) {
@@ -855,9 +886,15 @@ app.get('/api/db-matches', async (req, res) => {
       return res.status(500).json({ error: 'Failed to load matches' });
     }
 
-    let list = (latest || []).map((e) => {
+    const latestRows = latest || [];
+    const needsFallback = new Set();
+
+    let list = latestRows.map((e) => {
       const raw = e.raw || {};
       const matchId = String(e.match_id);
+      if (isStatusOnlyEvent(raw)) {
+        needsFallback.add(matchId);
+      }
       const ts = e.watch_timestamp || e.received_at || null;
       const { score, setsString } = summaryFromRaw(raw);
 
@@ -869,6 +906,56 @@ app.get('/api/db-matches', async (req, res) => {
         lastSnapshot: raw,
       };
     });
+
+    if (needsFallback.size) {
+      try {
+        const { data: fallbackRows, error: fallbackErr } = await supabase
+          .from('watch_events')
+          .select('match_id, raw, watch_timestamp, received_at')
+          .in('match_id', Array.from(needsFallback))
+          .order('watch_timestamp', { ascending: false, nullsLast: true })
+          .order('id', { ascending: false });
+        if (fallbackErr) {
+          console.error('Supabase watch_events fallback select error:', fallbackErr);
+        } else {
+          const fallbackByMatch = new Map();
+          for (const row of fallbackRows || []) {
+            const mid = String(row.match_id);
+            if (fallbackByMatch.has(mid)) continue;
+            if (isStatusOnlyEvent(row.raw)) continue;
+            fallbackByMatch.set(mid, row);
+          }
+
+          list = list.map((item) => {
+            if (!needsFallback.has(item.matchId)) return item;
+            const replacement = fallbackByMatch.get(item.matchId);
+            if (!replacement) {
+              return {
+                ...item,
+                lastSnapshot: {},
+                score: '',
+                setsString: '',
+              };
+            }
+            const fallbackRaw = replacement.raw || {};
+            const ts =
+              replacement.watch_timestamp ||
+              replacement.received_at ||
+              item.lastTimestamp;
+            const { score, setsString } = summaryFromRaw(fallbackRaw);
+            return {
+              ...item,
+              lastSnapshot: fallbackRaw,
+              lastTimestamp: ts,
+              score,
+              setsString,
+            };
+          });
+        }
+      } catch (e) {
+        console.error('Supabase watch_events fallback select exception:', e);
+      }
+    }
 
     const matchIds = list.map((m) => m.matchId);
 
