@@ -440,11 +440,18 @@ app.post('/api/update', async (req, res) => {
   const rawMatchId = body.matchId;
   const { games, points, players } = body;
   let { sets, server } = body;
+  const normalizedStatus =
+    typeof body.status === 'string' ? body.status.toLowerCase() : null;
 
-  if (!rawMatchId || !points) {
-    return res
-      .status(400)
-      .json({ error: 'matchId and points are required in payload' });
+  if (!rawMatchId) {
+    return res.status(400).json({ error: 'matchId is required in payload' });
+  }
+
+  const hasPoints = points !== undefined && points !== null;
+  if (!hasPoints && normalizedStatus !== 'finished') {
+    return res.status(400).json({
+      error: 'points are required unless status is finished',
+    });
   }
 
   const matchId = String(rawMatchId);
@@ -563,8 +570,6 @@ app.post('/api/update', async (req, res) => {
     }
   }
 
-  const normalizedStatus =
-    typeof body.status === 'string' ? body.status.toLowerCase() : null;
   if (normalizedStatus === 'finished') {
     match.status = 'finished';
     const winnerTeam = determineWinnerTeam(match);

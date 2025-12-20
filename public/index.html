@@ -99,29 +99,36 @@
       text-transform: uppercase;
     }
 
-    .match-tag--logo {
-      width: 50px;
-      height: 50px;
-      overflow: hidden;
-      background: #aaa;
+    .match-tag--logo,
+    .match-tag--text {
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      border-radius: 8px;
     }
 
     .match-tag--logo img {
-      width: 50px;
-      height: 50px;
+      width: 30px;
+      height: 30px;
       object-fit: scale-down;
       background: #aaa;
     }
 
+    .match-tag--logo {
+      overflow: hidden;
+      background: #aaa;
+    }
+
     .match-tag--text {
-      padding: 6px 12px;
-      border-radius: 999px;
       background: rgba(247, 201, 72, 0.15);
+      text-align: center;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+      font-size: xx-small;
     }
 
     .match-tag--result {
       font-weight: 700;
-      min-width: 44px;
     }
 
     .match-tag--win {
@@ -369,20 +376,22 @@
 
   function renderMetaTags(match) {
     const tags = [];
-    if (match.winnerTeam === 2) {
-      tags.push(buildTextTag('W', 'match-tag--result match-tag--win'));
-    } else if (match.winnerTeam === 1) {
-      tags.push(buildTextTag('L', 'match-tag--result match-tag--loss'));
-    }
-
-    const dateLabel = `${formatDate(match.lastTimestamp)} #${match.matchId}`;
-    tags.push(buildTextTag(dateLabel, 'match-tag--text'));
-
+    const formattedDate = formatDate(match.lastTimestamp);
+    const matchIdLabel = `#${match.matchId}`;
+    tags.push(buildTextTag(matchIdLabel));
+    tags.push(buildTextTag(formattedDate));
+    
     if (match.matchTypeIconUrl) {
       tags.push(buildImageTag(match.matchTypeIconUrl));
     }
     if (match.matchLocationLogoUrl) {
       tags.push(buildImageTag(match.matchLocationLogoUrl));
+    }
+
+    if (match.winnerTeam === 2) {
+      tags.push(buildTextTag('W', 'match-tag--result match-tag--win'));
+    } else if (match.winnerTeam === 1) {
+      tags.push(buildTextTag('L', 'match-tag--result match-tag--loss'));
     }
 
     return tags.length ? `<div class="match-tags">${tags.join('')}</div>` : '';
