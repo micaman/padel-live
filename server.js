@@ -11,9 +11,9 @@ const BASIC_PASS = process.env.BASIC_AUTH_PASS;
 const BASIC_REALM = process.env.BASIC_AUTH_REALM || 'Padel Live';
 
 function shouldEnforceAuth(req) {
-  // allow health checks without auth
-  if (req.path === '/robots.txt') return true;
+  // allow health checks and watch ingest without auth
   if (req.path === '/health' || req.path === '/favicon.ico') return false;
+  if (req.path === '/api/update') return false;
   return true;
 }
 
@@ -1056,13 +1056,55 @@ app.get('/api/db-matches', async (req, res) => {
 
     const matchIds = list.map((m) => m.matchId);
 
-    // names
-    const { data: players, error: pErr } = await supabase
-      .from('match_players')
-      .select('match_id, team, slot, player:players(id, name)')
-      .in('match_id', matchIds);
+    // For matches that only exist in metadata (no watch events) and still lack
+    // a type/location, surface them on the first page so they can be edited.
+    let extraMetaRows = [];
+    if (offset === 0) {
+      try {
+        const { data: missingMetaRows, error: missingMetaErr } = await supabase
+          .from('matches')
+          .select(
+            'match_id, note, match_type_id, match_location_id, status, winner_team, finished_at, created_at',
+          )
+          .or('match_type_id.is.null,match_location_id.is.null')
+          .order('created_at', { ascending: false })
+          .limit(50);
 
-    if (pErr) console.error('Supabase match_players select error:', pErr);
+        if (missingMetaErr) {
+          console.error('Supabase matches select error (missing meta):', missingMetaErr);
+        } else {
+          const existingIds = new Set(matchIds);
+          const candidates = (missingMetaRows || []).filter(
+            (row) => !existingIds.has(String(row.match_id)),
+          );
+          const candidateIds = candidates.map((row) => String(row.match_id));
+          const candidateSnapshots = await fetchLatestSnapshotsForMatches(candidateIds);
+          extraMetaRows = candidates.filter(
+            (row) => !candidateSnapshots.has(String(row.match_id)),
+          );
+        }
+      } catch (e) {
+        console.error('Supabase missing-meta fetch exception:', e);
+      }
+    }
+
+    const extraIds = extraMetaRows.map((row) => String(row.match_id));
+    const allMatchIds = Array.from(new Set([...matchIds, ...extraIds]));
+
+    // names
+    let players = [];
+    if (allMatchIds.length) {
+      const { data: playersData, error: pErr } = await supabase
+        .from('match_players')
+        .select('match_id, team, slot, player:players(id, name)')
+        .in('match_id', allMatchIds);
+
+      if (pErr) {
+        console.error('Supabase match_players select error:', pErr);
+      } else {
+        players = playersData || [];
+      }
+    }
 
     const playersByMatch = new Map();
     for (const p of players || []) {
@@ -1072,12 +1114,21 @@ app.get('/api/db-matches', async (req, res) => {
     }
 
     // notes
-    const { data: matchesMeta, error: mErr } = await supabase
-      .from('matches')
-      .select('match_id, note, match_type_id, match_location_id, status, winner_team')
-      .in('match_id', matchIds);
+    let matchesMeta = [];
+    if (allMatchIds.length) {
+      const { data: matchesMetaData, error: mErr } = await supabase
+        .from('matches')
+        .select(
+          'match_id, note, match_type_id, match_location_id, status, winner_team, finished_at',
+        )
+        .in('match_id', allMatchIds);
 
-    if (mErr) console.error('Supabase matches select error:', mErr);
+      if (mErr) {
+        console.error('Supabase matches select error:', mErr);
+      } else {
+        matchesMeta = matchesMetaData || [];
+      }
+    }
 
     const metaByMatch = new Map();
     const typeIds = new Set();
@@ -1091,6 +1142,7 @@ app.get('/api/db-matches', async (req, res) => {
         matchLocationId: m.match_location_id || null,
         status: m.status || null,
         winnerTeam: m.winner_team ?? null,
+        finishedAt: m.finished_at || null,
       });
     }
 
@@ -1155,10 +1207,46 @@ app.get('/api/db-matches', async (req, res) => {
       };
     });
 
+    const extras = extraMetaRows.map((row) => {
+      const matchId = String(row.match_id);
+      const ps = playersByMatch.get(matchId) || [];
+      const t1 = ps
+        .filter((p) => p.team === 1)
+        .sort((a, b) => a.slot - b.slot)
+        .map((p) => p.player?.name);
+      const t2 = ps
+        .filter((p) => p.team === 2)
+        .sort((a, b) => a.slot - b.slot)
+        .map((p) => p.player?.name);
+
+      const meta = metaByMatch.get(matchId) || {};
+      const typeRow = meta.matchTypeId ? typeById.get(meta.matchTypeId) : null;
+      const locationRow = meta.matchLocationId
+        ? locationById.get(meta.matchLocationId)
+        : null;
+
+      return {
+        matchId,
+        team1Name: t1.length ? t1.join(' / ') : 'Team 1',
+        team2Name: t2.length ? t2.join(' / ') : 'Team 2',
+        note: meta.note || null,
+        matchType: typeRow?.name || null,
+        matchTypeIconUrl: typeRow?.iconUrl || null,
+        matchLocation: locationRow?.name || null,
+        matchLocationLogoUrl: locationRow?.logoUrl || null,
+        status: meta.status || null,
+        winnerTeam: meta.winnerTeam ?? null,
+        lastTimestamp: meta.finishedAt || row.created_at || null,
+        lastSnapshot: {},
+        score: '',
+        setsString: '',
+      };
+    });
+
     // If we got fewer than limit, there are no more pages.
     const hasMore = (latest || []).length === limit;
 
-    return res.json({ items: list, limit, offset, hasMore });
+    return res.json({ items: list, extras, limit, offset, hasMore });
   } catch (e) {
     console.error('Supabase /api/db-matches exception:', e);
     return res.status(500).json({ error: 'Unexpected error' });

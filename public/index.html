@@ -352,6 +352,7 @@
   const limit = 10;
   let hasMore = true;
   let loading = false;
+  let shownCount = 0;
   let lastGroupKey = null;
   let lastGroupContainer = null;
 
@@ -606,16 +607,19 @@
 
       const data = await res.json();
       const items = data.items || [];
+      const extras = Array.isArray(data.extras) ? data.extras : [];
+      const batch = [...items, ...extras];
 
-      items.forEach((m) => {
+      batch.forEach((m) => {
         const groupContainer = ensureGroupContainer(m);
         groupContainer.appendChild(createMatchCard(m));
       });
 
       offset += items.length;
+      shownCount += batch.length;
       hasMore = data.hasMore;
 
-      statusEl.textContent = `Showing ${offset} matches`;
+      statusEl.textContent = `Showing ${shownCount} matches`;
       loadMoreBtn.style.display = hasMore ? 'inline-block' : 'none';
     } catch (e) {
       console.error(e);
