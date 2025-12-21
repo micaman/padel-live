@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Player Profile</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #111217;
+      --card-bg: #181a25;
+      --card-border: #26293a;
+      --accent: #f7c948;
+      --text-muted: rgba(255, 255, 255, 0.7);
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      background: radial-gradient(circle at top left, #303144, #111217 60%);
+      font-family: system-ui, -apple-system, sans-serif;
+      color: #f5f5f5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 980px;
+    }
+
+    .page-header {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .page-header h1 {
+      margin: 0;
+      font-size: 26px;
+      letter-spacing: 0.04em;
+    }
+
+    .subtitle {
+      margin: 0;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .back-link {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .status {
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+
+    .error {
+      color: #ff6b6b;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .summary-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .summary-card .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+
+    .summary-card .value {
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 15px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .breakdown-table table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .breakdown-table th,
+    .breakdown-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--card-border);
+      text-align: left;
+    }
+
+    .breakdown-table th {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .number {
+      text-align: right;
+    }
+
+    .empty-state {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .recent-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .recent-card {
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 8px;
+    }
+
+    .recent-card strong {
+      display: block;
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .recent-card span {
+      font-size: 13px;
+    }
+
+    .player-link {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .player-link:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <header class="page-header">
+      <a href="/" class="back-link">← Back to matches</a>
+      <h1 id="playerName">Player</h1>
+      <p id="playerSubtitle" class="subtitle"></p>
+    </header>
+
+    <div id="status" class="status"></div>
+    <div id="error" class="error"></div>
+
+    <section class="summary-grid" id="summaryGrid">
+      <div class="summary-card">
+        <div class="label">Matches</div>
+        <div class="value" id="summaryMatches">0</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Wins</div>
+        <div class="value" id="summaryWins">0</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Losses</div>
+        <div class="value" id="summaryLosses">0</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Win %</div>
+        <div class="value" id="summaryWinPct">0%</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Avg Winners</div>
+        <div class="value" id="summaryAvgWinners">0</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Avg Errors</div>
+        <div class="value" id="summaryAvgErrors">0</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Recent Matches</h2>
+      <div id="recentMatches" class="recent-list"></div>
+    </section>
+
+    <section class="panel">
+      <h2>By Match Type</h2>
+      <div id="breakdownType" class="breakdown-table"></div>
+    </section>
+
+    <section class="panel">
+      <h2>By Location</h2>
+      <div id="breakdownLocation" class="breakdown-table"></div>
+    </section>
+
+    <section class="panel">
+      <h2>By Partner</h2>
+      <div id="breakdownPartner" class="breakdown-table"></div>
+    </section>
+
+    <section class="panel">
+      <h2>By Opponent</h2>
+      <div id="breakdownOpponent" class="breakdown-table"></div>
+    </section>
+
+    <section class="panel">
+      <h2>By Day of Week</h2>
+      <div id="breakdownDay" class="breakdown-table"></div>
+    </section>
+  </div>
+
+  <script type="module" src="/js/player.js"></script>
+</body>
+</html>

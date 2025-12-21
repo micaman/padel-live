@@ -49,6 +49,53 @@
     .matches-list {
       display: flex;
       flex-direction: column;
+      gap: 24px;
+    }
+
+    .match-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 12px 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .match-group:first-child {
+      border-top: none;
+      padding-top: 0;
+    }
+
+    .match-group-header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      opacity: .85;
+    }
+
+    .match-group-title {
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .match-group-title .match-tag {
+      border-color: rgba(247, 201, 72, 0.3);
+    }
+
+    .match-group-date {
+      font-size: 11px;
+    }
+
+    .match-group-items {
+      display: flex;
+      flex-direction: column;
       gap: 14px;
     }
 
@@ -305,6 +352,8 @@
   const limit = 10;
   let hasMore = true;
   let loading = false;
+  let lastGroupKey = null;
+  let lastGroupContainer = null;
 
   function escapeHtml(value) {
     if (typeof value !== 'string') return '';
@@ -334,6 +383,75 @@
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const year = d.getFullYear();
     return `${day}/${month}/${year}`;
+  }
+
+  function formatDateKey(ts) {
+    if (!ts) return 'unknown-date';
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return 'unknown-date';
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${month}-${day}`;
+  }
+
+  function normalizeGroupValue(value, fallback) {
+    if (typeof value !== 'string') return fallback;
+    const trimmed = value.trim().toLowerCase();
+    return trimmed || fallback;
+  }
+
+  function getGroupKey(match) {
+    const typePart = normalizeGroupValue(match.matchType, 'type-unknown');
+    const locationPart = normalizeGroupValue(match.matchLocation, 'location-unknown');
+    const datePart = formatDateKey(match.lastTimestamp);
+    return `${typePart}|${locationPart}|${datePart}`;
+  }
+
+  function getGroupMeta(match) {
+    return {
+      typeLabel: match.matchType || 'Unknown type',
+      locationLabel: match.matchLocation || 'Unknown location',
+      dateLabel: formatDate(match.lastTimestamp),
+    };
+  }
+
+  function createGroupSection(match, key) {
+    const meta = getGroupMeta(match);
+    const section = document.createElement('section');
+    section.className = 'match-group';
+    section.dataset.groupKey = key;
+
+    const typeIcon = match.matchTypeIconUrl ? buildImageTag(match.matchTypeIconUrl) : '';
+    const locationIcon = match.matchLocationLogoUrl ? buildImageTag(match.matchLocationLogoUrl) : '';
+
+    const header = document.createElement('div');
+    header.className = 'match-group-header';
+    header.innerHTML = `
+      <div class="match-group-title">
+        ${typeIcon}
+        <span>${escapeHtml(meta.typeLabel)} | ${escapeHtml(meta.locationLabel)}</span>
+        ${locationIcon}
+      </div>
+      <div class="match-group-date">${escapeHtml(meta.dateLabel)}</div>
+    `;
+
+    const itemsWrap = document.createElement('div');
+    itemsWrap.className = 'match-group-items';
+
+    section.appendChild(header);
+    section.appendChild(itemsWrap);
+    matchesList.appendChild(section);
+
+    return itemsWrap;
+  }
+
+  function ensureGroupContainer(match) {
+    const key = getGroupKey(match);
+    if (key !== lastGroupKey || !lastGroupContainer) {
+      lastGroupKey = key;
+      lastGroupContainer = createGroupSection(match, key);
+    }
+    return lastGroupContainer;
   }
 
   function serverTeam(server) {
@@ -376,18 +494,9 @@
 
   function renderMetaTags(match) {
     const tags = [];
-    const formattedDate = formatDate(match.lastTimestamp);
     const matchIdLabel = `#${match.matchId}`;
     tags.push(buildTextTag(matchIdLabel));
-    tags.push(buildTextTag(formattedDate));
     
-    if (match.matchTypeIconUrl) {
-      tags.push(buildImageTag(match.matchTypeIconUrl));
-    }
-    if (match.matchLocationLogoUrl) {
-      tags.push(buildImageTag(match.matchLocationLogoUrl));
-    }
-
     if (match.winnerTeam === 2) {
       tags.push(buildTextTag('W', 'match-tag--result match-tag--win'));
     } else if (match.winnerTeam === 1) {
@@ -498,7 +607,10 @@
       const data = await res.json();
       const items = data.items || [];
 
-      items.forEach(m => matchesList.appendChild(createMatchCard(m)));
+      items.forEach((m) => {
+        const groupContainer = ensureGroupContainer(m);
+        groupContainer.appendChild(createMatchCard(m));
+      });
 
       offset += items.length;
       hasMore = data.hasMore;

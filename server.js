@@ -6,6 +6,46 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+const BASIC_USER = process.env.BASIC_AUTH_USER;
+const BASIC_PASS = process.env.BASIC_AUTH_PASS;
+const BASIC_REALM = process.env.BASIC_AUTH_REALM || 'Padel Live';
+
+function shouldEnforceAuth(req) {
+  // allow health checks without auth
+  if (req.path === '/robots.txt') return true;
+  if (req.path === '/health' || req.path === '/favicon.ico') return false;
+  return true;
+}
+
+function parseBasicAuth(header) {
+  if (!header || typeof header !== 'string') return null;
+  const match = header.match(/^Basic\s+([A-Za-z0-9+/=]+)$/i);
+  if (!match) return null;
+  const decoded = Buffer.from(match[1], 'base64').toString('utf8');
+  const idx = decoded.indexOf(':');
+  if (idx === -1) return null;
+  return {
+    username: decoded.slice(0, idx),
+    password: decoded.slice(idx + 1),
+  };
+}
+
+app.use((req, res, next) => {
+  if (!BASIC_USER || !BASIC_PASS || !shouldEnforceAuth(req)) {
+    return next();
+  }
+  const credentials = parseBasicAuth(req.headers.authorization);
+  if (
+    credentials &&
+    credentials.username === BASIC_USER &&
+    credentials.password === BASIC_PASS
+  ) {
+    return next();
+  }
+  res.set('WWW-Authenticate', `Basic realm="${BASIC_REALM}"`);
+  return res.status(401).send('Authentication required');
+});
+
 // Serve static files from /public
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -198,6 +238,82 @@ function isStatusOnlyEvent(raw) {
     typeof raw.server === 'number' || typeof raw.serverPlayer === 'number';
 
   return !hasPoints && !hasSets && !hasGames && !hasPlayers && !hasServer;
+}
+
+function teamSlotToIndex(team, slot) {
+  if (team === 1) {
+    return slot === 2 ? 1 : 0;
+  }
+  return slot === 2 ? 3 : 2;
+}
+
+const DAY_LABELS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+function getDayLabel(timestamp) {
+  if (!timestamp) return 'Unknown';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return DAY_LABELS[date.getDay()];
+}
+
+async function fetchLatestSnapshotsForMatches(matchIds) {
+  const result = new Map();
+  if (!supabase || !Array.isArray(matchIds) || !matchIds.length) {
+    return result;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('latest_watch_event_per_match')
+      .select('match_id, raw, watch_timestamp, received_at')
+      .in('match_id', matchIds);
+    if (error) {
+      console.error('Supabase latest view (by match) select error:', error);
+      return result;
+    }
+
+    const needsFallback = new Set();
+    for (const row of data || []) {
+      const matchKey = String(row.match_id);
+      const raw = row.raw || {};
+      if (isStatusOnlyEvent(raw)) {
+        needsFallback.add(matchKey);
+      } else {
+        result.set(matchKey, row);
+      }
+    }
+
+    if (needsFallback.size) {
+      const { data: fallbackRows, error: fallbackErr } = await supabase
+        .from('watch_events')
+        .select('match_id, raw, watch_timestamp, received_at')
+        .in('match_id', Array.from(needsFallback))
+        .order('watch_timestamp', { ascending: false, nullsLast: true })
+        .order('id', { ascending: false });
+      if (fallbackErr) {
+        console.error('Supabase watch_events fallback (by match) error:', fallbackErr);
+      } else {
+        for (const row of fallbackRows || []) {
+          const matchKey = String(row.match_id);
+          if (result.has(matchKey)) continue;
+          if (isStatusOnlyEvent(row.raw)) continue;
+          result.set(matchKey, row);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Supabase fetchLatestSnapshotsForMatches exception:', e);
+  }
+
+  return result;
 }
 
 async function persistMatchStatus(matchId, { status, winnerTeam, finishedAt } = {}) {
@@ -908,53 +1024,34 @@ app.get('/api/db-matches', async (req, res) => {
     });
 
     if (needsFallback.size) {
-      try {
-        const { data: fallbackRows, error: fallbackErr } = await supabase
-          .from('watch_events')
-          .select('match_id, raw, watch_timestamp, received_at')
-          .in('match_id', Array.from(needsFallback))
-          .order('watch_timestamp', { ascending: false, nullsLast: true })
-          .order('id', { ascending: false });
-        if (fallbackErr) {
-          console.error('Supabase watch_events fallback select error:', fallbackErr);
-        } else {
-          const fallbackByMatch = new Map();
-          for (const row of fallbackRows || []) {
-            const mid = String(row.match_id);
-            if (fallbackByMatch.has(mid)) continue;
-            if (isStatusOnlyEvent(row.raw)) continue;
-            fallbackByMatch.set(mid, row);
-          }
-
-          list = list.map((item) => {
-            if (!needsFallback.has(item.matchId)) return item;
-            const replacement = fallbackByMatch.get(item.matchId);
-            if (!replacement) {
-              return {
-                ...item,
-                lastSnapshot: {},
-                score: '',
-                setsString: '',
-              };
-            }
-            const fallbackRaw = replacement.raw || {};
-            const ts =
-              replacement.watch_timestamp ||
-              replacement.received_at ||
-              item.lastTimestamp;
-            const { score, setsString } = summaryFromRaw(fallbackRaw);
-            return {
-              ...item,
-              lastSnapshot: fallbackRaw,
-              lastTimestamp: ts,
-              score,
-              setsString,
-            };
-          });
+      const fallbackSnapshots = await fetchLatestSnapshotsForMatches(
+        Array.from(needsFallback),
+      );
+      list = list.map((item) => {
+        if (!needsFallback.has(item.matchId)) return item;
+        const replacement = fallbackSnapshots.get(item.matchId);
+        if (!replacement) {
+          return {
+            ...item,
+            lastSnapshot: {},
+            score: '',
+            setsString: '',
+          };
         }
-      } catch (e) {
-        console.error('Supabase watch_events fallback select exception:', e);
-      }
+        const fallbackRaw = replacement.raw || {};
+        const ts =
+          replacement.watch_timestamp ||
+          replacement.received_at ||
+          item.lastTimestamp;
+        const { score, setsString } = summaryFromRaw(fallbackRaw);
+        return {
+          ...item,
+          lastSnapshot: fallbackRaw,
+          lastTimestamp: ts,
+          score,
+          setsString,
+        };
+      });
     }
 
     const matchIds = list.map((m) => m.matchId);
@@ -1106,6 +1203,406 @@ app.post('/api/match/:id/players', async (req, res) => {
   return res.json({ ok: true, players: match.players });
 });
 
+// Player profile page data
+app.get('/api/player/:id/profile', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  const playerId = Number(req.params.id);
+  if (!Number.isFinite(playerId) || playerId <= 0) {
+    return res.status(400).json({ error: 'Invalid player id' });
+  }
+
+  const payload = {
+    player: null,
+    summary: {
+      totalMatches: 0,
+      wins: 0,
+      losses: 0,
+      winPct: null,
+      totalWinners: 0,
+      totalErrors: 0,
+      avgWinners: 0,
+      avgErrors: 0,
+    },
+    breakdowns: {
+      byType: [],
+      byLocation: [],
+      byPartner: [],
+      byOpponent: [],
+      byDayOfWeek: [],
+    },
+    recentMatches: [],
+  };
+
+  try {
+    const { data: playerRow, error: playerErr } = await supabase
+      .from('players')
+      .select('id, name, slug, created_at')
+      .eq('id', playerId)
+      .maybeSingle();
+    if (playerErr) {
+      console.error('Supabase players select error:', playerErr);
+      return res.status(500).json({ error: 'Failed to load player' });
+    }
+    if (!playerRow) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+
+    payload.player = {
+      id: playerRow.id,
+      name: playerRow.name,
+      slug: playerRow.slug,
+      joinedAt: playerRow.created_at,
+    };
+
+    const { data: memberships, error: membershipErr } = await supabase
+      .from('match_players')
+      .select('match_id, team, slot')
+      .eq('player_id', playerId);
+    if (membershipErr) {
+      console.error('Supabase match_players select error:', membershipErr);
+      return res.status(500).json({ error: 'Failed to load player matches' });
+    }
+
+    if (!memberships || !memberships.length) {
+      return res.json(payload);
+    }
+
+    const membershipByMatch = new Map();
+    for (const entry of memberships) {
+      membershipByMatch.set(String(entry.match_id), entry);
+    }
+    const matchIds = Array.from(membershipByMatch.keys());
+
+    const [{ data: matchesMeta, error: matchesErr }, { data: matchPlayersRows, error: matchPlayersErr }] =
+      await Promise.all([
+        supabase
+          .from('matches')
+          .select(
+            'match_id, status, winner_team, match_type_id, match_location_id, finished_at',
+          )
+          .in('match_id', matchIds),
+        supabase
+          .from('match_players')
+          .select('match_id, team, slot, player:players(id, name)')
+          .in('match_id', matchIds),
+      ]);
+
+    if (matchesErr) {
+      console.error('Supabase matches select error (player profile):', matchesErr);
+      return res.status(500).json({ error: 'Failed to load matches metadata' });
+    }
+    if (matchPlayersErr) {
+      console.error('Supabase match_players select error (player profile roster):', matchPlayersErr);
+      return res.status(500).json({ error: 'Failed to load match rosters' });
+    }
+
+    const matchesById = new Map();
+    const typeIds = new Set();
+    const locationIds = new Set();
+    for (const row of matchesMeta || []) {
+      const matchKey = String(row.match_id);
+      matchesById.set(matchKey, row);
+      if (row.match_type_id) typeIds.add(row.match_type_id);
+      if (row.match_location_id) locationIds.add(row.match_location_id);
+    }
+
+    let typeById = new Map();
+    if (typeIds.size) {
+      const { data: typeRows, error: typeErr } = await supabase
+        .from('match_types')
+        .select('id, name, icon_url')
+        .in('id', Array.from(typeIds));
+      if (typeErr) {
+        console.error('Supabase match_types select error (player profile):', typeErr);
+      } else {
+        typeById = new Map(
+          (typeRows || []).map((row) => [row.id, formatMatchTypeRow(row)]),
+        );
+      }
+    }
+
+    let locationById = new Map();
+    if (locationIds.size) {
+      const { data: locationRows, error: locationErr } = await supabase
+        .from('match_locations')
+        .select('id, name, logo_url')
+        .in('id', Array.from(locationIds));
+      if (locationErr) {
+        console.error('Supabase match_locations select error (player profile):', locationErr);
+      } else {
+        locationById = new Map(
+          (locationRows || []).map((row) => [row.id, formatMatchLocationRow(row)]),
+        );
+      }
+    }
+
+    const playersByMatch = new Map();
+    for (const row of matchPlayersRows || []) {
+      const matchKey = String(row.match_id);
+      if (!playersByMatch.has(matchKey)) {
+        playersByMatch.set(matchKey, []);
+      }
+      playersByMatch.get(matchKey).push({
+        team: row.team,
+        slot: row.slot,
+        id: row.player?.id || null,
+        name: row.player?.name || `Team ${row.team} Player ${row.slot}`,
+      });
+    }
+    for (const roster of playersByMatch.values()) {
+      roster.sort((a, b) => {
+        if (a.team !== b.team) return a.team - b.team;
+        return a.slot - b.slot;
+      });
+    }
+
+    const snapshotsMap = await fetchLatestSnapshotsForMatches(matchIds);
+
+    const summary = { ...payload.summary };
+    const typeBuckets = new Map();
+    const locationBuckets = new Map();
+    const partnerBuckets = new Map();
+    const opponentBuckets = new Map();
+    const dayBuckets = new Map();
+    const recentMatches = [];
+
+    const updateBucket = (map, key, label, isWin, isLoss, winners = 0, errors = 0) => {
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          label,
+          matches: 0,
+          wins: 0,
+          losses: 0,
+          winners: 0,
+          errors: 0,
+        });
+      }
+      const bucket = map.get(key);
+      bucket.matches += 1;
+      if (isWin) bucket.wins += 1;
+      if (isLoss) bucket.losses += 1;
+      bucket.winners += winners;
+      bucket.errors += errors;
+    };
+
+    const finalizeBuckets = (map) =>
+      Array.from(map.values())
+        .map((bucket) => ({
+          label: bucket.label,
+          matches: bucket.matches,
+          wins: bucket.wins,
+          losses: bucket.losses,
+          winPct: bucket.matches ? bucket.wins / bucket.matches : null,
+          avgWinners: bucket.matches ? bucket.winners / bucket.matches : 0,
+          avgErrors: bucket.matches ? bucket.errors / bucket.matches : 0,
+          relatedPlayerId:
+            typeof bucket.key === 'string' && bucket.key.startsWith('player:')
+              ? Number(bucket.key.split(':')[1]) || null
+              : null,
+        }))
+        .sort((a, b) => {
+          if (b.matches !== a.matches) return b.matches - a.matches;
+          const aPct = a.winPct ?? -1;
+          const bPct = b.winPct ?? -1;
+          if (bPct !== aPct) return bPct - aPct;
+          return a.label.localeCompare(b.label);
+        });
+
+    for (const [matchId, membership] of membershipByMatch.entries()) {
+      const meta = matchesById.get(matchId) || {};
+      const snapshot = snapshotsMap.get(matchId);
+      const raw = snapshot?.raw || {};
+      const playersSnapshot = Array.isArray(raw.players) ? raw.players : [];
+      const statIndex = teamSlotToIndex(membership.team, membership.slot);
+      const playerStats = playersSnapshot[statIndex] || {};
+      const winners = Number(playerStats.winners || 0);
+      const errors = Number(playerStats.errors || 0);
+      const winnerTeam = Number(meta.winner_team);
+      const isWin = Number.isInteger(winnerTeam) && winnerTeam === membership.team;
+      const isLoss =
+        Number.isInteger(winnerTeam) &&
+        winnerTeam !== membership.team &&
+        (winnerTeam === 1 || winnerTeam === 2);
+
+      summary.totalMatches += 1;
+      if (isWin) summary.wins += 1;
+      if (isLoss) summary.losses += 1;
+      summary.totalWinners += winners;
+      summary.totalErrors += errors;
+
+      const typeRow = meta.match_type_id
+        ? typeById.get(meta.match_type_id)
+        : null;
+      const locationRow = meta.match_location_id
+        ? locationById.get(meta.match_location_id)
+        : null;
+
+      updateBucket(
+        typeBuckets,
+        typeRow?.id ? `type:${typeRow.id}` : 'type:unknown',
+        typeRow?.name || 'Unknown type',
+        isWin,
+        isLoss,
+        winners,
+        errors,
+      );
+      updateBucket(
+        locationBuckets,
+        locationRow?.id ? `location:${locationRow.id}` : 'location:unknown',
+        locationRow?.name || 'Unknown location',
+        isWin,
+        isLoss,
+        winners,
+        errors,
+      );
+
+      const roster = playersByMatch.get(matchId) || [];
+      const partner = roster.find(
+        (p) => p.team === membership.team && p.slot !== membership.slot,
+      );
+      if (partner) {
+        const partnerKey = partner.id
+          ? `player:${partner.id}`
+          : `partner:${partner.name.toLowerCase()}`;
+        updateBucket(partnerBuckets, partnerKey, partner.name, isWin, isLoss, winners, errors);
+      }
+
+      const opponents = roster.filter((p) => p.team !== membership.team);
+      for (const opponent of opponents) {
+        const opponentKey = opponent.id
+          ? `player:${opponent.id}`
+          : `opponent:${opponent.name.toLowerCase()}`;
+        updateBucket(
+          opponentBuckets,
+          opponentKey,
+          opponent.name,
+          isWin,
+          isLoss,
+          winners,
+          errors,
+        );
+      }
+
+      const matchTimestamp =
+        meta.finished_at ||
+        snapshot?.watch_timestamp ||
+        snapshot?.received_at ||
+        null;
+      const dayLabel = getDayLabel(matchTimestamp);
+      updateBucket(dayBuckets, `dow:${dayLabel}`, dayLabel, isWin, isLoss, winners, errors);
+
+      const { score } = summaryFromRaw(raw);
+      recentMatches.push({
+        matchId,
+        partner: partner ? { id: partner.id, name: partner.name } : null,
+        opponents: opponents.map((op) => ({ id: op.id, name: op.name })),
+        result: isWin ? 'W' : isLoss ? 'L' : '—',
+        finishedAt: matchTimestamp,
+        matchType: typeRow?.name || null,
+        matchLocation: locationRow?.name || null,
+        score: score || null,
+      });
+    }
+
+    if (summary.totalMatches) {
+      summary.winPct = summary.wins / summary.totalMatches;
+      summary.avgWinners = summary.totalWinners / summary.totalMatches;
+      summary.avgErrors = summary.totalErrors / summary.totalMatches;
+    } else {
+      summary.winPct = null;
+      summary.avgWinners = 0;
+      summary.avgErrors = 0;
+    }
+
+    recentMatches.sort((a, b) => {
+      const aTime = a.finishedAt ? new Date(a.finishedAt).getTime() : 0;
+      const bTime = b.finishedAt ? new Date(b.finishedAt).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    payload.summary = summary;
+    payload.breakdowns = {
+      byType: finalizeBuckets(typeBuckets),
+      byLocation: finalizeBuckets(locationBuckets),
+      byPartner: finalizeBuckets(partnerBuckets),
+      byOpponent: finalizeBuckets(opponentBuckets),
+      byDayOfWeek: finalizeBuckets(dayBuckets),
+    };
+    payload.recentMatches = recentMatches.slice(0, 10);
+
+    return res.json(payload);
+  } catch (e) {
+    console.error('/api/player/:id/profile exception:', e);
+    return res.status(500).json({ error: 'Unexpected error' });
+  }
+});
+
+// Match neighbors for navigation
+app.get('/api/match/:id/neighbors', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  const matchId = String(req.params.id);
+
+  try {
+    const { data: current, error: currentErr } = await supabase
+      .from('matches')
+      .select('match_id, created_at')
+      .eq('match_id', matchId)
+      .maybeSingle();
+    if (currentErr) {
+      console.error('Supabase match select error (neighbors):', currentErr);
+      return res.status(500).json({ error: 'Failed to load match' });
+    }
+    if (!current) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    const anchor = current.created_at;
+    if (!anchor) {
+      return res.json({ previous: null, next: null });
+    }
+
+    const [prevRes, nextRes] = await Promise.all([
+      supabase
+        .from('matches')
+        .select('match_id, created_at')
+        .lt('created_at', anchor)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('matches')
+        .select('match_id, created_at')
+        .gt('created_at', anchor)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    const toPayload = (row) =>
+      row
+        ? {
+            matchId: row.match_id,
+            createdAt: row.created_at,
+          }
+        : null;
+
+    return res.json({
+      previous: toPayload(prevRes.data || null),
+      next: toPayload(nextRes.data || null),
+    });
+  } catch (e) {
+    console.error('/api/match/:id/neighbors exception:', e);
+    return res.status(500).json({ error: 'Unexpected error' });
+  }
+});
+
 // Index page: list matches
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -1114,6 +1611,11 @@ app.get('/', (req, res) => {
 // Match viewer page: /match/6813
 app.get('/match/:id', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'match.html'));
+});
+
+// Player profile page
+app.get('/player/:id', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'player.html'));
 });
 
 const port = process.env.PORT || 10000;

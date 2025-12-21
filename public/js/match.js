@@ -20,7 +20,17 @@ const state = {
   impactChart: null,
   timelineChart: null,
   currentNames: ["P1", "P2", "P3", "P4"],
+  playerRefs: [
+    { id: null, name: "P1" },
+    { id: null, name: "P2" },
+    { id: null, name: "P3" },
+    { id: null, name: "P4" }
+  ],
   currentMatchId: null,
+  neighbors: {
+    previous: null,
+    next: null
+  },
   matchNote: "",
   matchType: null,
   matchLocation: null,
@@ -77,8 +87,63 @@ const dom = {
   noteInput: document.getElementById("noteInput"),
   saveMetaBtn: document.getElementById("saveMetaBtn"),
   timelineChart: document.getElementById("timelineChart"),
-  timelineEmpty: document.getElementById("timelineEmpty")
+  timelineEmpty: document.getElementById("timelineEmpty"),
+  prevMatchLink: document.getElementById("prevMatchLink"),
+  nextMatchLink: document.getElementById("nextMatchLink")
 };
+
+function escapeHtml(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/[&<>"']/g, (ch) => {
+    switch (ch) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return ch;
+    }
+  });
+}
+
+function getPlayerRef(index) {
+  return (
+    state.playerRefs[index] || {
+      id: null,
+      name: state.currentNames[index] || `P${index + 1}`
+    }
+  );
+}
+
+function renderPlayerName(index, options = {}) {
+  const ref = getPlayerRef(index);
+  const baseName = state.currentNames[index] || ref.name || `P${index + 1}`;
+  const label = options.uppercase ? baseName.toUpperCase() : baseName;
+  const safeLabel = escapeHtml(label);
+  if (ref.id) {
+    return `<a class="player-link" href="/player/${ref.id}">${safeLabel}</a>`;
+  }
+  return safeLabel;
+}
+
+function normalizePlayerRef(entry, fallbackName, index) {
+  if (entry) {
+    return {
+      id: entry.id ?? entry.playerId ?? null,
+      name: entry.name || fallbackName || `P${index + 1}`
+    };
+  }
+  return {
+    id: null,
+    name: fallbackName || `P${index + 1}`
+  };
+}
 
 const setCells = [
   {
@@ -179,6 +244,7 @@ async function autoLoadFromServer(matchId) {
 
     setStatus(`Loaded ${state.snapshots.length} payloads for match ${matchId}.`);
     buildFromVisible();
+    fetchNeighbors(matchId);
   } catch (err) {
     console.error(err);
     setError(`Failed to load match from server: ${err.message}`);
@@ -187,20 +253,34 @@ async function autoLoadFromServer(matchId) {
 
 function applyDbNames(playersFromDb) {
   if (!playersFromDb.length) {
+    state.playerRefs = state.currentNames.map((name, idx) => ({
+      id: null,
+      name: name || `P${idx + 1}`
+    }));
     if (dom.namesPanel) dom.namesPanel.style.display = "block";
     return;
   }
 
   const byKey = {};
   playersFromDb.forEach((p) => {
-    byKey[`${p.team}-${p.slot}`] = p.name;
+    byKey[`${p.team}-${p.slot}`] = {
+      name: p.name,
+      id: p.playerId || null
+    };
   });
 
   state.currentNames = [
-    byKey["1-1"] || state.currentNames[0],
-    byKey["1-2"] || state.currentNames[1],
-    byKey["2-1"] || state.currentNames[2],
-    byKey["2-2"] || state.currentNames[3]
+    byKey["1-1"]?.name || state.currentNames[0],
+    byKey["1-2"]?.name || state.currentNames[1],
+    byKey["2-1"]?.name || state.currentNames[2],
+    byKey["2-2"]?.name || state.currentNames[3]
+  ];
+
+  state.playerRefs = [
+    normalizePlayerRef(byKey["1-1"], state.currentNames[0], 0),
+    normalizePlayerRef(byKey["1-2"], state.currentNames[1], 1),
+    normalizePlayerRef(byKey["2-1"], state.currentNames[2], 2),
+    normalizePlayerRef(byKey["2-2"], state.currentNames[3], 3)
   ];
 
   if (dom.namesPanel) dom.namesPanel.style.display = "none";
@@ -539,6 +619,10 @@ function handleApplyNames() {
     dom.t2p1Input?.value || "P3",
     dom.t2p2Input?.value || "P4"
   ];
+  state.playerRefs = state.currentNames.map((name, idx) => ({
+    id: state.playerRefs[idx]?.id ?? null,
+    name: name || state.playerRefs[idx]?.name || `P${idx + 1}`
+  }));
   updateNamesOnScoreboard();
   updateTeamStats();
   updatePlayerStatsTable();
@@ -670,10 +754,60 @@ function renderPointsAndServer(snap) {
 }
 
 function updateNamesOnScoreboard() {
-  const team1 = `${state.currentNames[0]}/${state.currentNames[1]}`.toUpperCase();
-  const team2 = `${state.currentNames[2]}/${state.currentNames[3]}`.toUpperCase();
-  if (dom.team1Name) dom.team1Name.textContent = team1;
-  if (dom.team2Name) dom.team2Name.textContent = team2;
+  const team1 = `${renderPlayerName(0, { uppercase: true })} / ${renderPlayerName(
+    1,
+    { uppercase: true }
+  )}`;
+  const team2 = `${renderPlayerName(2, { uppercase: true })} / ${renderPlayerName(
+    3,
+    { uppercase: true }
+  )}`;
+  if (dom.team1Name) dom.team1Name.innerHTML = team1;
+  if (dom.team2Name) dom.team2Name.innerHTML = team2;
+}
+
+async function fetchNeighbors(matchId) {
+  try {
+    const res = await fetch(`/api/match/${matchId}/neighbors`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    state.neighbors.previous = data.previous || null;
+    state.neighbors.next = data.next || null;
+  } catch (err) {
+    console.error("Failed to load neighbors:", err);
+    state.neighbors.previous = null;
+    state.neighbors.next = null;
+  } finally {
+    updateMatchNavigation();
+  }
+}
+
+function updateMatchNavigation() {
+  const { previous, next } = state.neighbors;
+  if (dom.prevMatchLink) {
+    if (previous?.matchId) {
+      dom.prevMatchLink.href = `/match/${previous.matchId}`;
+      dom.prevMatchLink.textContent = `← Match #${previous.matchId}`;
+      dom.prevMatchLink.style.display = "inline-block";
+      dom.prevMatchLink.classList.remove("nav-link--disabled");
+    } else {
+      dom.prevMatchLink.href = "#";
+      dom.prevMatchLink.style.display = "none";
+      dom.prevMatchLink.classList.add("nav-link--disabled");
+    }
+  }
+  if (dom.nextMatchLink) {
+    if (next?.matchId) {
+      dom.nextMatchLink.href = `/match/${next.matchId}`;
+      dom.nextMatchLink.textContent = `Match #${next.matchId} →`;
+      dom.nextMatchLink.style.display = "inline-block";
+      dom.nextMatchLink.classList.remove("nav-link--disabled");
+    } else {
+      dom.nextMatchLink.href = "#";
+      dom.nextMatchLink.style.display = "none";
+      dom.nextMatchLink.classList.add("nav-link--disabled");
+    }
+  }
 }
 
 function updateTeamStats() {
@@ -693,11 +827,13 @@ function updateTeamStats() {
   const team1 = getTotals(0, 1);
   const team2 = getTotals(2, 3);
   const bpStats = computeBreakStats(state.visibleSnapshots);
+  const team1Label = `${renderPlayerName(0)} / ${renderPlayerName(1)}`;
+  const team2Label = `${renderPlayerName(2)} / ${renderPlayerName(3)}`;
 
   const rows = [
     `
       <tr>
-        <td>${state.currentNames[0]}/${state.currentNames[1]}</td>
+        <td>${team1Label}</td>
         <td class="stat-number">${team1.winners}</td>
         <td class="stat-number">${team1.errors}</td>
         <td class="stat-number">${team1.winners - team1.errors}</td>
@@ -706,7 +842,7 @@ function updateTeamStats() {
     `,
     `
       <tr>
-        <td>${state.currentNames[2]}/${state.currentNames[3]}</td>
+        <td>${team2Label}</td>
         <td class="stat-number">${team2.winners}</td>
         <td class="stat-number">${team2.errors}</td>
         <td class="stat-number">${team2.winners - team2.errors}</td>
@@ -736,6 +872,7 @@ function updatePlayerStatsTable() {
     const e = Number(pl.errors || 0);
     const impact = w - e;
     playerRows.push({
+      index: i,
       name: state.currentNames[i] || `P${i + 1}`,
       winners: w,
       errors: e,
@@ -748,7 +885,7 @@ function updatePlayerStatsTable() {
     .map(
       (row) => `
       <tr class="${row.impact === bestImpact ? "best-player" : ""}">
-        <td>${row.name}</td>
+        <td>${renderPlayerName(row.index)}</td>
         <td class="stat-number">${row.winners}</td>
         <td class="stat-number">${row.errors}</td>
         <td class="stat-number">${row.impact}</td>
