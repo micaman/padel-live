@@ -366,13 +366,18 @@ function renderRecent(matches) {
         match.opponents && match.opponents.length
           ? match.opponents.map(formatNameLink).join(" / ")
           : "-";
-      const context = [match.matchType, match.matchLocation].filter(Boolean).join(" · ") || "-";
-      const scorePart = match.score ? ` · ${escapeHtml(match.score)}` : "";
+      const context = [match.matchType, match.matchLocation].filter(Boolean).join(" | ") || "-";
+      const scorePart = match.score ? ` | ${escapeHtml(match.score)}` : "";
+      const resultText = `${escapeHtml(match.result || "-")}${scorePart}`;
+      const matchUrl = match.matchId ? `/match/${encodeURIComponent(match.matchId)}` : null;
+      const resultContent = matchUrl
+        ? `<a class="recent-result-link" href="${matchUrl}">${resultText}</a>`
+        : resultText;
       return `
         <div class="recent-card">
           <div>
             <strong>Result</strong>
-            <span>${escapeHtml(match.result || "-")}${scorePart}</span>
+            <span>${resultContent}</span>
           </div>
           <div>
             <strong>Partner</strong>

@@ -56,6 +56,7 @@ const dom = {
   sliderRow: document.getElementById("sliderRow"),
   timeSlider: document.getElementById("timeSlider"),
   timeLabel: document.getElementById("timeLabel"),
+  replayBtn: document.getElementById("replayBtn"),
   team1Name: document.getElementById("team1Name"),
   team2Name: document.getElementById("team2Name"),
   team1Points: document.getElementById("team1Points"),
@@ -85,6 +86,7 @@ const dom = {
   matchLevelDisplay: document.getElementById("matchLevelDisplay"),
   matchCostDisplay: document.getElementById("matchCostDisplay"),
   noteDisplay: document.getElementById("noteDisplay"),
+  keyMomentsList: document.getElementById("keyMomentsList"),
   matchMetaForm: document.getElementById("matchMetaForm"),
   matchTypeSelect: document.getElementById("matchTypeSelect"),
   matchLocationSelect: document.getElementById("matchLocationSelect"),
@@ -100,6 +102,8 @@ const dom = {
   prevMatchLink: document.getElementById("prevMatchLink"),
   nextMatchLink: document.getElementById("nextMatchLink")
 };
+
+let replayTimer = null;
 
 function escapeHtml(value) {
   if (typeof value !== "string") return "";
@@ -244,15 +248,11 @@ function wireEventListeners() {
   dom.loadBtn?.addEventListener("click", handleManualLoad);
 
   dom.timeSlider?.addEventListener("input", () => {
-    const idx = Number(dom.timeSlider.value) - 1;
-    const max = state.snapshots.length;
-    const safeIdx = Math.min(Math.max(idx, 0), Math.max(max - 1, 0));
-    state.visibleSnapshots = state.snapshots.slice(0, safeIdx + 1);
-    if (dom.timeLabel) {
-      dom.timeLabel.textContent = `Point ${safeIdx + 1} / ${max}`;
-    }
-    buildFromVisible();
+    stopReplay();
+    applySliderValue(dom.timeSlider.value);
   });
+
+  dom.replayBtn?.addEventListener("click", startReplay);
 
   dom.applyNamesBtn?.addEventListener("click", handleApplyNames);
 }
@@ -673,6 +673,42 @@ function showMainView() {
   if (dom.inputPanel) dom.inputPanel.style.display = "none";
 }
 
+function stopReplay() {
+  if (replayTimer) {
+    clearInterval(replayTimer);
+    replayTimer = null;
+  }
+}
+
+function applySliderValue(rawValue) {
+  if (!dom.timeSlider) return;
+  const idx = Number(rawValue ?? dom.timeSlider.value) - 1;
+  const max = state.snapshots.length;
+  const safeIdx = Math.min(Math.max(idx, 0), Math.max(max - 1, 0));
+  dom.timeSlider.value = String(safeIdx + 1);
+  state.visibleSnapshots = state.snapshots.slice(0, safeIdx + 1);
+  if (dom.timeLabel) {
+    dom.timeLabel.textContent = `Point ${safeIdx + 1} / ${max}`;
+  }
+  buildFromVisible();
+}
+
+function startReplay() {
+  if (!dom.timeSlider || state.snapshots.length <= 1) return;
+  stopReplay();
+  applySliderValue(1);
+  let current = 1;
+  const max = state.snapshots.length;
+  replayTimer = setInterval(() => {
+    current += 1;
+    if (current > max) {
+      stopReplay();
+      return;
+    }
+    applySliderValue(current);
+  }, 1000);
+}
+
 function syncSlider() {
   if (!dom.timeSlider || !dom.sliderRow) return;
 
@@ -686,6 +722,7 @@ function syncSlider() {
     }
   } else {
     dom.sliderRow.style.display = "none";
+    stopReplay();
   }
 }
 
@@ -831,6 +868,7 @@ function buildFromVisible() {
   updateTimeStats();
   updateImpactChart();
   updateTimelineChart();
+  renderKeyMoments();
 }
 
 function renderSetColumns(snap) {
@@ -1068,6 +1106,16 @@ function updateTimeStats() {
   `;
 }
 
+function renderKeyMoments() {
+  if (!dom.keyMomentsList) return;
+  const items = computeKeyMoments(state.visibleSnapshots);
+  if (!items.length) {
+    dom.keyMomentsList.innerHTML = "<li>Not enough data yet.</li>";
+    return;
+  }
+  dom.keyMomentsList.innerHTML = items.map((text) => `<li>${text}</li>`).join("");
+}
+
 function updateImpactChart() {
   const canvas = document.getElementById("impactChart");
   if (!canvas || !state.visibleSnapshots.length) {
@@ -1191,16 +1239,347 @@ function extractSetArrayFromSnapshot(snap) {
 function countGamesAndSets(snap) {
   const setArr = extractSetArrayFromSnapshot(snap);
   let totalGames = 0;
+  let g1 = 0;
+  let g2 = 0;
   for (const s of setArr) {
     const t1 = scoreValueToInt(s.team1);
     const t2 = scoreValueToInt(s.team2);
-    if (t1 != null) totalGames += t1;
-    if (t2 != null) totalGames += t2;
+    if (t1 != null) {
+      totalGames += t1;
+      g1 += t1;
+    }
+    if (t2 != null) {
+      totalGames += t2;
+      g2 += t2;
+    }
   }
   return {
+    g1,
+    g2,
     totalGames,
     setSlices: setArr.length
   };
+}
+
+function normalizePointStrLocal(value) {
+  if (value == null) return "";
+  return String(value).trim().toUpperCase();
+}
+
+function collectPointEvents(snaps) {
+  const events = [];
+  for (let i = 1; i < snaps.length; i++) {
+    const prev = snaps[i - 1];
+    const curr = snaps[i];
+    const prevPlayers = Array.isArray(prev.players) ? prev.players : [];
+    const currPlayers = Array.isArray(curr.players) ? curr.players : [];
+    for (let pIdx = 0; pIdx < 4; pIdx++) {
+      const prevStats = prevPlayers[pIdx] || { winners: 0, errors: 0 };
+      const currStats = currPlayers[pIdx] || { winners: 0, errors: 0 };
+      const wDiff = Number(currStats.winners || 0) - Number(prevStats.winners || 0);
+      const eDiff = Number(currStats.errors || 0) - Number(prevStats.errors || 0);
+      if (wDiff > 0) {
+        events.push({ index: i, playerIndex: pIdx, team: pIdx < 2 ? 1 : 2, eventType: "winner" });
+      }
+      if (eDiff > 0) {
+        events.push({ index: i, playerIndex: pIdx, team: pIdx < 2 ? 1 : 2, eventType: "error" });
+      }
+    }
+  }
+  return events;
+}
+
+
+function computeKeyMoments(snapshots) {
+  if (!snapshots || snapshots.length < 2) return [];
+
+  const events = collectPointEvents(snapshots);
+  const eventsByIndex = new Map();
+  events.forEach((ev) => {
+    if (!eventsByIndex.has(ev.index)) eventsByIndex.set(ev.index, []);
+    eventsByIndex.get(ev.index).push(ev);
+  });
+
+  const times = computeRelativePointTimes(snapshots);
+  const timeStats = computeTimeStats(snapshots);
+  const matchDurationSec = timeStats?.matchDuration ?? (times.length ? times[times.length - 1] : 0);
+
+  const playerGoldenWon = [0, 0, 0, 0];
+  const playerGoldenLost = [0, 0, 0, 0];
+  const playerBreakWon = [0, 0, 0, 0];
+  const playerBreakLost = [0, 0, 0, 0];
+  const playerLastWon = [0, 0, 0, 0];
+  const playerLastLost = [0, 0, 0, 0];
+  const playerBestWinnerStreak = [0, 0, 0, 0];
+  const playerErrorStreak = [0, 0, 0, 0];
+  const playerBestErrorStreak = [0, 0, 0, 0];
+  const playerPointWinStreak = [0, 0, 0, 0];
+  const playerErrorTimes = [[], [], [], []];
+
+  const teamGoldenWon = { 1: 0, 2: 0 };
+  const teamGoldenLost = { 1: 0, 2: 0 };
+  const teamBreakWon = { 1: 0, 2: 0 };
+  const teamBreakLost = { 1: 0, 2: 0 };
+  const teamLastWon = { 1: 0, 2: 0 };
+  const teamLastLost = { 1: 0, 2: 0 };
+  const teamWinnerStreak = { 1: 0, 2: 0 };
+  const teamBestWinnerStreak = { 1: 0, 2: 0 };
+  const teamErrorStreak = { 1: 0, 2: 0 };
+  const teamBestErrorStreak = { 1: 0, 2: 0 };
+  const teamPointStreak = { 1: 0, 2: 0 };
+  const teamBestPointStreak = { 1: 0, 2: 0 };
+  const teamErrorTimes = { 1: [], 2: [] };
+
+  const pointWinnerTeam = (ev) => (ev.eventType === "winner" ? ev.team : ev.team === 1 ? 2 : 1);
+
+  // Track streaks, points, and error times from point-by-point events
+  for (const ev of events) {
+    const winnerTeam = pointWinnerTeam(ev);
+    const losingTeam = winnerTeam === 1 ? 2 : 1;
+
+    // Reset streaks when switching event types
+    if (ev.eventType !== "winner") {
+      for (let i = 0; i < 4; i++) playerPointWinStreak[i] = 0;
+      teamWinnerStreak[1] = 0;
+      teamWinnerStreak[2] = 0;
+    }
+    if (ev.eventType !== "error") {
+      for (let i = 0; i < 4; i++) playerErrorStreak[i] = 0;
+      teamErrorStreak[1] = 0;
+      teamErrorStreak[2] = 0;
+    }
+
+    // Point streak per team
+    teamPointStreak[winnerTeam] += 1;
+    teamBestPointStreak[winnerTeam] = Math.max(teamBestPointStreak[winnerTeam], teamPointStreak[winnerTeam]);
+    teamPointStreak[losingTeam] = 0;
+
+    // Winner/error streaks
+    if (ev.eventType === "winner") {
+      playerPointWinStreak[ev.playerIndex] += 1;
+      playerBestWinnerStreak[ev.playerIndex] = Math.max(
+        playerBestWinnerStreak[ev.playerIndex],
+        playerPointWinStreak[ev.playerIndex]
+      );
+      for (let i = 0; i < 4; i++) {
+        if (i !== ev.playerIndex) playerPointWinStreak[i] = 0;
+      }
+      teamWinnerStreak[ev.team] += 1;
+      teamBestWinnerStreak[ev.team] = Math.max(teamBestWinnerStreak[ev.team], teamWinnerStreak[ev.team]);
+      teamWinnerStreak[losingTeam] = 0;
+    } else if (ev.eventType === "error") {
+      playerErrorStreak[ev.playerIndex] += 1;
+      playerBestErrorStreak[ev.playerIndex] = Math.max(
+        playerBestErrorStreak[ev.playerIndex],
+        playerErrorStreak[ev.playerIndex]
+      );
+      for (let i = 0; i < 4; i++) {
+        if (i !== ev.playerIndex) playerErrorStreak[i] = 0;
+      }
+      teamErrorStreak[ev.team] += 1;
+      teamBestErrorStreak[ev.team] = Math.max(teamBestErrorStreak[ev.team], teamErrorStreak[ev.team]);
+      teamWinnerStreak[ev.team] = 0;
+    }
+
+    // Track error times for gaps
+    if (ev.eventType === "error") {
+      const t = times[ev.index] ?? 0;
+      playerErrorTimes[ev.playerIndex].push(t);
+      teamErrorTimes[ev.team].push(t);
+    }
+  }
+
+  // Game-by-game scan for golden points, breaks, and last points
+  for (let i = 1; i < snapshots.length; i++) {
+    const prev = snapshots[i - 1];
+    const curr = snapshots[i];
+    const prevGames = countGamesAndSets(prev);
+    const currGames = countGamesAndSets(curr);
+    const deltaG1 = currGames.g1 - prevGames.g1;
+    const deltaG2 = currGames.g2 - prevGames.g2;
+    const totalDelta = deltaG1 + deltaG2;
+    const gameWinner = totalDelta === 1 ? (deltaG1 === 1 ? 1 : 2) : null;
+    if (!gameWinner) continue;
+    const loser = gameWinner === 1 ? 2 : 1;
+
+    const serverTeam = serverTeamFromServerField(curr.server ?? prev.server);
+    const points = prev.points || {};
+    const p1 = normalizePointStrLocal(points.team1);
+    const p2 = normalizePointStrLocal(points.team2);
+    const wasGolden = p1 === "40" && p2 === "40";
+
+    const gameEvents = eventsByIndex.get(i) || [];
+    const finalEvent = gameEvents[gameEvents.length - 1] || null;
+
+    const creditWinToPlayers = (targetTeam, arr) => {
+      if (finalEvent && finalEvent.team === targetTeam && finalEvent.eventType === "winner") {
+        arr[finalEvent.playerIndex] += 1;
+      }
+    };
+
+    const creditLossToPlayers = (targetTeam, arr) => {
+      if (finalEvent && finalEvent.team === targetTeam && finalEvent.eventType === "error") {
+        arr[finalEvent.playerIndex] += 1;
+      }
+    };
+
+    // Golden points
+    if (wasGolden) {
+      teamGoldenWon[gameWinner] += 1;
+      teamGoldenLost[loser] += 1;
+      creditWinToPlayers(gameWinner, playerGoldenWon);
+      creditLossToPlayers(loser, playerGoldenLost);
+    }
+
+    // Break points (game won by returning team)
+    if (serverTeam && serverTeam !== gameWinner) {
+      teamBreakWon[gameWinner] += 1;
+      teamBreakLost[serverTeam] += 1;
+      creditWinToPlayers(gameWinner, playerBreakWon);
+      creditLossToPlayers(serverTeam, playerBreakLost);
+    }
+
+    // Last point of game
+    teamLastWon[gameWinner] += 1;
+    teamLastLost[loser] += 1;
+    creditWinToPlayers(gameWinner, playerLastWon);
+    creditLossToPlayers(loser, playerLastLost);
+  }
+
+  const teamLabel = (team) =>
+    team === 1 ? `${renderPlayerName(0)} / ${renderPlayerName(1)}` : `${renderPlayerName(2)} / ${renderPlayerName(3)}`;
+  const playerLabel = (idx) => renderPlayerName(idx);
+
+  const topPlayers = (arr) => {
+    let max = Math.max(...arr);
+    if (max <= 0) return { max: 0, list: [] };
+    const list = arr.map((v, i) => ({ v, i })).filter(({ v }) => v === max).map(({ i }) => i);
+    return { max, list };
+  };
+
+  const topTeams = (obj) => {
+    const values = [obj[1] ?? 0, obj[2] ?? 0];
+    const max = Math.max(...values);
+    if (max <= 0) return { max: 0, list: [] };
+    const list = [];
+    if (values[0] === max) list.push(1);
+    if (values[1] === max) list.push(2);
+    return { max, list };
+  };
+
+  const formatNames = (indices) => indices.map(playerLabel).join(" / ");
+  const formatTeams = (teams) => teams.map((t) => teamLabel(t)).join(" | ");
+
+  const errorGapFromTimes = (timeArr) => {
+    if (!timeArr.length) return matchDurationSec;
+    if (timeArr.length === 1) return matchDurationSec - timeArr[0];
+    let best = 0;
+    for (let i = 1; i < timeArr.length; i++) {
+      best = Math.max(best, timeArr[i] - timeArr[i - 1]);
+    }
+    return best;
+  };
+
+  const playerErrorGaps = playerErrorTimes.map(errorGapFromTimes);
+  const teamErrorGaps = {
+    1: errorGapFromTimes(teamErrorTimes[1]),
+    2: errorGapFromTimes(teamErrorTimes[2])
+  };
+
+  const bullets = [];
+
+  const pushIf = (condition, text) => {
+    if (condition) bullets.push(text);
+  };
+
+  const goldenWinPlayers = topPlayers(playerGoldenWon);
+  pushIf(
+    goldenWinPlayers.max > 0,
+    `Player golden points won: ${formatNames(goldenWinPlayers.list)} (${goldenWinPlayers.max}).`
+  );
+
+  const goldenLossPlayers = topPlayers(playerGoldenLost);
+  pushIf(
+    goldenLossPlayers.max > 0,
+    `Player golden points lost: ${formatNames(goldenLossPlayers.list)} (${goldenLossPlayers.max}).`
+  );
+
+  const breakWinPlayers = topPlayers(playerBreakWon);
+  pushIf(breakWinPlayers.max > 0, `Player break points won: ${formatNames(breakWinPlayers.list)} (${breakWinPlayers.max}).`);
+
+  const breakLossPlayers = topPlayers(playerBreakLost);
+  pushIf(
+    breakLossPlayers.max > 0,
+    `Player break points lost: ${formatNames(breakLossPlayers.list)} (${breakLossPlayers.max}).`
+  );
+
+  const lastWinPlayers = topPlayers(playerLastWon);
+  pushIf(lastWinPlayers.max > 0, `Player last point wins: ${formatNames(lastWinPlayers.list)} (${lastWinPlayers.max}).`);
+
+  const lastLossPlayers = topPlayers(playerLastLost);
+  pushIf(lastLossPlayers.max > 0, `Player last point losses: ${formatNames(lastLossPlayers.list)} (${lastLossPlayers.max}).`);
+
+  const winnerStreakPlayers = topPlayers(playerBestWinnerStreak);
+  pushIf(
+    winnerStreakPlayers.max > 0,
+    `Player longest winner streak: ${formatNames(winnerStreakPlayers.list)} (${winnerStreakPlayers.max}).`
+  );
+
+  const errorStreakPlayers = topPlayers(playerBestErrorStreak);
+  pushIf(
+    errorStreakPlayers.max > 0,
+    `Player longest error streak: ${formatNames(errorStreakPlayers.list)} (${errorStreakPlayers.max}).`
+  );
+
+  const goldenWinTeams = topTeams(teamGoldenWon);
+  pushIf(goldenWinTeams.max > 0, `Team golden points won: ${formatTeams(goldenWinTeams.list)} (${goldenWinTeams.max}).`);
+
+  const goldenLossTeams = topTeams(teamGoldenLost);
+  pushIf(goldenLossTeams.max > 0, `Team golden points lost: ${formatTeams(goldenLossTeams.list)} (${goldenLossTeams.max}).`);
+
+  const breakWinTeams = topTeams(teamBreakWon);
+  pushIf(breakWinTeams.max > 0, `Team break points won: ${formatTeams(breakWinTeams.list)} (${breakWinTeams.max}).`);
+
+  const breakLossTeams = topTeams(teamBreakLost);
+  pushIf(breakLossTeams.max > 0, `Team break points lost: ${formatTeams(breakLossTeams.list)} (${breakLossTeams.max}).`);
+
+  const lastWinTeams = topTeams(teamLastWon);
+  pushIf(lastWinTeams.max > 0, `Team last point wins: ${formatTeams(lastWinTeams.list)} (${lastWinTeams.max}).`);
+
+  const lastLossTeams = topTeams(teamLastLost);
+  pushIf(lastLossTeams.max > 0, `Team last point losses: ${formatTeams(lastLossTeams.list)} (${lastLossTeams.max}).`);
+
+  const winnerStreakTeams = topTeams(teamBestWinnerStreak);
+  pushIf(
+    winnerStreakTeams.max > 0,
+    `Team longest winner streak: ${formatTeams(winnerStreakTeams.list)} (${winnerStreakTeams.max}).`
+  );
+
+  const errorStreakTeams = topTeams(teamBestErrorStreak);
+  pushIf(
+    errorStreakTeams.max > 0,
+    `Team longest error streak: ${formatTeams(errorStreakTeams.list)} (${errorStreakTeams.max}).`
+  );
+
+  const playerErrorGapTop = topPlayers(playerErrorGaps);
+  pushIf(
+    playerErrorGapTop.max > 0,
+    `Longest time between errors (player): ${formatNames(playerErrorGapTop.list)} (${formatDuration(playerErrorGapTop.max)}).`
+  );
+
+  const teamErrorGapTop = topTeams(teamErrorGaps);
+  pushIf(
+    teamErrorGapTop.max > 0,
+    `Longest time between errors (team): ${formatTeams(teamErrorGapTop.list)} (${formatDuration(teamErrorGapTop.max)}).`
+  );
+
+  const bestPointRunTeam = topTeams(teamBestPointStreak);
+  pushIf(
+    bestPointRunTeam.max > 0,
+    `Longest point run (team): ${formatTeams(bestPointRunTeam.list)} (${bestPointRunTeam.max} consecutive points).`
+  );
+
+  return bullets;
 }
 
 function collectGameSetMarkers(snaps, times) {

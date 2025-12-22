@@ -38,6 +38,7 @@
 
       <!-- SLIDER -->
       <div id="sliderRow" class="slider-row" style="display:none;">
+        <button id="replayBtn" type="button">Replay</button>
         <span id="timeLabel">Point 1 / 1</span>
         <input type="range" id="timeSlider" min="1" max="1" value="1">
       </div>
@@ -45,24 +46,20 @@
       <!-- SCOREBOARD -->
       <div class="scoreboard-wrapper">
         <div class="scoreboard">
-          <div class="sb-icon"><div class="sb-icon-symbol"></div></div>
+          <div class="sb-icon"><img src="https://i.imgur.com/GLjjux7.png" width="32" height="32" alt=""></div>
 
           <div class="sb-teams">
             <div class="sb-row">
               <div class="team-name" id="team1Name">TEAM 1</div>
-              <div class="team-meta">
-                <span class="server-dot" id="team1ServerDot" style="display:none;"></span>
-              </div>
+              <span class="server-dot" id="team1ServerDot" style="display:none;"></span>
             </div>
             <div class="sb-row">
               <div class="team-name" id="team2Name">TEAM 2</div>
-              <div class="team-meta">
-                <span class="server-dot" id="team2ServerDot" style="display:none;"></span>
-              </div>
+              <span class="server-dot" id="team2ServerDot" style="display:none;"></span>
             </div>
           </div>
 
-          <div class="sb-sets">
+          <div class="sb-sets" style="padding-top: 0px;">
             <div class="sb-set-col" id="setCol1">
               <div class="sb-set-top" id="set1T1">-</div>
               <div class="sb-set-bottom" id="set1T2">-</div>
@@ -232,6 +229,12 @@
           </thead>
           <tbody id="timeStatsBody"></tbody>
         </table>
+      </div>
+
+      <!-- KEY MOMENTS -->
+      <div class="panel">
+        <h3>Key Moments</h3>
+        <ul id="keyMomentsList" class="key-moments"></ul>
       </div>
 
       <!-- CHART -->
