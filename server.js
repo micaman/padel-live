@@ -773,7 +773,7 @@ app.get('/api/match/:id/history', async (req, res) => {
         .order('slot', { ascending: true }),
       supabase
         .from('matches')
-        .select('note, match_type_id, match_location_id, status, winner_team, finished_at')
+        .select('note, match_type_id, match_location_id, status, winner_team, finished_at, scheduled_at, match_level, match_cost')
         .eq('match_id', matchId)
         .maybeSingle(),
       fetchMatchTypeOptions(),
