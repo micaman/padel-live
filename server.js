@@ -825,6 +825,9 @@ app.get('/api/match/:id/history', async (req, res) => {
       status: matchMeta?.status || null,
       winnerTeam: matchMeta?.winner_team ?? null,
       finishedAt: matchMeta?.finished_at || null,
+      scheduledAt: matchMeta?.scheduled_at || null,
+      matchLevel: matchMeta?.match_level || null,
+      matchCost: matchMeta?.match_cost ?? null,
       matchTypeOptions: typeOptions,
       matchLocationOptions: locationOptions,
     });
@@ -876,6 +879,24 @@ app.post('/api/match/:id/note', async (req, res) => {
     ? body.match_location_name
     : undefined;
 
+  const scheduledAtRaw = Object.prototype.hasOwnProperty.call(body, 'scheduledAt')
+    ? body.scheduledAt
+    : Object.prototype.hasOwnProperty.call(body, 'scheduled_at')
+    ? body.scheduled_at
+    : undefined;
+
+  const matchLevelRaw = Object.prototype.hasOwnProperty.call(body, 'matchLevel')
+    ? body.matchLevel
+    : Object.prototype.hasOwnProperty.call(body, 'match_level')
+    ? body.match_level
+    : undefined;
+
+  const matchCostRaw = Object.prototype.hasOwnProperty.call(body, 'matchCost')
+    ? body.matchCost
+    : Object.prototype.hasOwnProperty.call(body, 'match_cost')
+    ? body.match_cost
+    : undefined;
+
   const matchTypeId =
     matchTypeIdRaw !== undefined ? parseNullableId(matchTypeIdRaw) : undefined;
   const matchTypeName =
@@ -889,6 +910,10 @@ app.post('/api/match/:id/note', async (req, res) => {
     matchLocationNameRaw !== undefined
       ? normalizeText(matchLocationNameRaw)
       : undefined;
+  const scheduledAt = parseNullableDate(scheduledAtRaw);
+  const matchLevel =
+    matchLevelRaw !== undefined ? normalizeText(matchLevelRaw) : undefined;
+  const matchCost = parseNullableNumber(matchCostRaw);
 
   if (!supabase) {
     return res.status(500).json({ error: 'Supabase not configured' });
@@ -935,6 +960,21 @@ app.post('/api/match/:id/note', async (req, res) => {
       payload.match_location_id = matchLocationId ?? null;
     }
 
+    if (scheduledAt !== undefined) {
+      updatedFields++;
+      payload.scheduled_at = scheduledAt;
+    }
+
+    if (matchLevel !== undefined) {
+      updatedFields++;
+      payload.match_level = matchLevel;
+    }
+
+    if (matchCost !== undefined) {
+      updatedFields++;
+      payload.match_cost = matchCost;
+    }
+
     if (updatedFields === 0) {
       return res.status(400).json({ error: 'No metadata fields to update' });
     }
@@ -942,7 +982,7 @@ app.post('/api/match/:id/note', async (req, res) => {
     const { data, error } = await supabase
       .from('matches')
       .upsert(payload, { onConflict: 'match_id' })
-      .select('note, match_type_id, match_location_id, status, winner_team, finished_at')
+      .select('note, match_type_id, match_location_id, status, winner_team, finished_at, match_level, match_cost, scheduled_at')
       .single();
 
     if (error) {
@@ -972,6 +1012,9 @@ app.post('/api/match/:id/note', async (req, res) => {
       status: data.status || null,
       winnerTeam: data.winner_team ?? null,
       finishedAt: data.finished_at || null,
+      matchLevel: data.match_level || null,
+      matchCost: data.match_cost ?? null,
+      scheduledAt: data.scheduled_at || null,
       matchTypeOptions: typeOptions,
       matchLocationOptions: locationOptions,
     });
@@ -1369,7 +1412,7 @@ app.get('/api/player/:id/profile', async (req, res) => {
         supabase
           .from('matches')
           .select(
-            'match_id, status, winner_team, match_type_id, match_location_id, finished_at',
+            'match_id, status, winner_team, match_type_id, match_location_id, finished_at, scheduled_at, match_level, match_cost',
           )
           .in('match_id', matchIds),
         supabase
@@ -1455,6 +1498,12 @@ app.get('/api/player/:id/profile', async (req, res) => {
     const partnerBuckets = new Map();
     const opponentBuckets = new Map();
     const dayBuckets = new Map();
+    const levelBuckets = new Map();
+    const timeBuckets = new Map();
+    const financeByLocation = new Map();
+    const financeByMonth = new Map();
+    const calendarCounts = new Map();
+    let totalSpent = 0;
     const recentMatches = [];
 
     const updateBucket = (map, key, label, isWin, isLoss, winners = 0, errors = 0) => {
@@ -1499,6 +1548,17 @@ app.get('/api/player/:id/profile', async (req, res) => {
           if (bPct !== aPct) return bPct - aPct;
           return a.label.localeCompare(b.label);
         });
+
+    const timeBucketForTimestamp = (ts) => {
+      if (!ts) return 'Unknown';
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return 'Unknown';
+      const h = d.getHours();
+      if (h < 6) return 'Late night';
+      if (h < 12) return 'Morning';
+      if (h < 18) return 'Afternoon';
+      return 'Evening';
+    };
 
     for (const [matchId, membership] of membershipByMatch.entries()) {
       const meta = matchesById.get(matchId) || {};
@@ -1577,11 +1637,56 @@ app.get('/api/player/:id/profile', async (req, res) => {
 
       const matchTimestamp =
         meta.finished_at ||
+        meta.scheduled_at ||
         snapshot?.watch_timestamp ||
         snapshot?.received_at ||
         null;
       const dayLabel = getDayLabel(matchTimestamp);
       updateBucket(dayBuckets, `dow:${dayLabel}`, dayLabel, isWin, isLoss, winners, errors);
+      const timeLabel = timeBucketForTimestamp(matchTimestamp);
+      updateBucket(timeBuckets, `time:${timeLabel}`, timeLabel, isWin, isLoss, winners, errors);
+
+      if (meta.match_level) {
+        const levelLabel = String(meta.match_level).toUpperCase();
+        updateBucket(
+          levelBuckets,
+          `level:${levelLabel}`,
+          levelLabel,
+          isWin,
+          isLoss,
+          winners,
+          errors,
+        );
+      }
+
+      const matchCost = meta.match_cost != null ? Number(meta.match_cost) : null;
+      if (Number.isFinite(matchCost)) {
+        totalSpent += matchCost;
+        const locKey = locationRow?.name || 'Unknown location';
+        financeByLocation.set(locKey, (financeByLocation.get(locKey) || 0) + matchCost);
+
+        const refDate = matchTimestamp ? new Date(matchTimestamp) : null;
+        const monthKey =
+          refDate && !Number.isNaN(refDate.getTime())
+            ? `${refDate.getFullYear()}-${String(refDate.getMonth() + 1).padStart(2, '0')}`
+            : 'Unknown';
+        const monthLabel =
+          refDate && !Number.isNaN(refDate.getTime())
+            ? refDate.toLocaleDateString(undefined, { year: 'numeric', month: 'short' })
+            : 'Unknown';
+        if (!financeByMonth.has(monthKey)) {
+          financeByMonth.set(monthKey, { label: monthLabel, cost: 0, key: monthKey });
+        }
+        financeByMonth.get(monthKey).cost += matchCost;
+      }
+
+      if (matchTimestamp) {
+        const d = new Date(matchTimestamp);
+        if (!Number.isNaN(d.getTime())) {
+          const dateKey = d.toISOString().slice(0, 10);
+          calendarCounts.set(dateKey, (calendarCounts.get(dateKey) || 0) + 1);
+        }
+      }
 
       const { score } = summaryFromRaw(raw);
       recentMatches.push({
@@ -1605,6 +1710,7 @@ app.get('/api/player/:id/profile', async (req, res) => {
       summary.avgWinners = 0;
       summary.avgErrors = 0;
     }
+    summary.totalSpent = totalSpent;
 
     recentMatches.sort((a, b) => {
       const aTime = a.finishedAt ? new Date(a.finishedAt).getTime() : 0;
@@ -1619,7 +1725,25 @@ app.get('/api/player/:id/profile', async (req, res) => {
       byPartner: finalizeBuckets(partnerBuckets),
       byOpponent: finalizeBuckets(opponentBuckets),
       byDayOfWeek: finalizeBuckets(dayBuckets),
+      byLevel: finalizeBuckets(levelBuckets),
+      byTimeOfDay: finalizeBuckets(timeBuckets),
     };
+    payload.finance = {
+      totalSpent,
+      byLocation: Array.from(financeByLocation.entries())
+        .map(([label, cost]) => ({ label, cost }))
+        .sort((a, b) => b.cost - a.cost || a.label.localeCompare(b.label)),
+      byMonth: Array.from(financeByMonth.entries())
+        .map(([, row]) => row)
+        .sort((a, b) => {
+          if (a.key === 'Unknown') return 1;
+          if (b.key === 'Unknown') return -1;
+          return b.key.localeCompare(a.key);
+        }),
+    };
+    payload.calendarDates = Array.from(calendarCounts.entries())
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
     payload.recentMatches = recentMatches.slice(0, 10);
 
     return res.json(payload);

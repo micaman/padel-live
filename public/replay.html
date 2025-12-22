@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Padel Payload Replayer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #0f1118;
+      --panel: #181c2b;
+      --panel-border: #252a3d;
+      --accent: #f7c948;
+      --muted: #a9afc7;
+      --text: #f5f6fb;
+      --danger: #ff6b6b;
+      --success: #57d657;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 20%, #1d2133, #0f1118 60%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+    }
+
+    .page {
+      width: 100%;
+      max-width: 920px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    textarea, input {
+      width: 100%;
+      box-sizing: border-box;
+      border-radius: 6px;
+      border: 1px solid #31384d;
+      background: #0d1020;
+      color: var(--text);
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: 14px;
+    }
+
+    textarea {
+      min-height: 220px;
+      resize: vertical;
+    }
+
+    input {
+      max-width: 300px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+      align-items: center;
+    }
+
+    button {
+      border: 1px solid var(--accent);
+      background: transparent;
+      color: var(--text);
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      transition: all 0.12s ease;
+    }
+
+    button:hover {
+      background: rgba(247, 201, 72, 0.1);
+      box-shadow: 0 0 0 1px rgba(247, 201, 72, 0.15);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      box-shadow: none;
+      background: transparent;
+    }
+
+    .status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .log {
+      margin-top: 14px;
+      max-height: 260px;
+      overflow: auto;
+      border: 1px dashed #2f3650;
+      border-radius: 8px;
+      padding: 10px;
+      background: #0c0f1a;
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
+
+    .log-line {
+      margin: 0;
+      padding: 4px 0;
+    }
+
+    .log-line.ok {
+      color: var(--success);
+    }
+
+    .log-line.err {
+      color: var(--danger);
+    }
+
+    .small-note {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>Payload Replayer</h1>
+    <p>
+      Paste one JSON payload per line (historical order). Optional: override the <code>matchId</code> to replay into a new match.
+      Click <b>Send</b> to stream each payload to <code>/api/update</code>.
+    </p>
+
+    <section class="panel">
+      <label for="payloadInput">Payload list</label>
+      <textarea id="payloadInput" placeholder='{"matchId":123,"points":{"team1":"0","team2":"0"},...}'></textarea>
+
+      <div class="actions">
+        <div>
+          <label for="overrideMatchId">Override matchId (optional)</label>
+          <input id="overrideMatchId" placeholder="e.g. 9999">
+          <div class="small-note">If set, every payload will be sent with this matchId.</div>
+        </div>
+
+        <div style="flex:1"></div>
+
+        <button id="validateBtn">Validate</button>
+        <button id="sendBtn">Send to /api/update</button>
+      </div>
+
+      <div id="status" class="status"></div>
+      <div id="log" class="log"></div>
+    </section>
+  </main>
+
+  <script>
+    const dom = {
+      payloadInput: document.getElementById("payloadInput"),
+      overrideMatchId: document.getElementById("overrideMatchId"),
+      validateBtn: document.getElementById("validateBtn"),
+      sendBtn: document.getElementById("sendBtn"),
+      status: document.getElementById("status"),
+      log: document.getElementById("log")
+    };
+
+    function setStatus(msg) {
+      if (dom.status) dom.status.textContent = msg || "";
+    }
+
+    function logLine(message, type = "") {
+      if (!dom.log) return;
+      const el = document.createElement("div");
+      el.className = `log-line ${type}`;
+      el.textContent = message;
+      dom.log.appendChild(el);
+      dom.log.scrollTop = dom.log.scrollHeight;
+    }
+
+    function clearLog() {
+      if (dom.log) dom.log.innerHTML = "";
+    }
+
+    function parseInputLines() {
+      const raw = dom.payloadInput?.value || "";
+      const lines = raw
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      if (!lines.length) {
+        throw new Error("No payload lines found.");
+      }
+
+      const override = (dom.overrideMatchId?.value || "").trim();
+      const payloads = [];
+
+      lines.forEach((line, idx) => {
+        try {
+          const obj = JSON.parse(line);
+          if (!obj || typeof obj !== "object") {
+            throw new Error("Not an object");
+          }
+          if (override) {
+            obj.matchId = override;
+          }
+          if (obj.matchId == null || obj.matchId === "") {
+            throw new Error("Missing matchId (set it in payload or override)");
+          }
+          payloads.push(obj);
+        } catch (err) {
+          throw new Error(`Line ${idx + 1}: ${err.message}`);
+        }
+      });
+
+      return payloads;
+    }
+
+    async function sendPayloads(payloads) {
+      let ok = 0;
+      let failed = 0;
+      clearLog();
+      setStatus(`Sending ${payloads.length} payloads...`);
+      dom.sendBtn.disabled = true;
+      dom.validateBtn.disabled = true;
+
+      for (let i = 0; i < payloads.length; i++) {
+        const payload = payloads[i];
+        const label = `#${i + 1} (matchId=${payload.matchId})`;
+        try {
+          const res = await fetch("/api/update", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.error) {
+            failed++;
+            logLine(`${label} -> FAIL: ${data.error || "HTTP " + res.status}`, "err");
+          } else {
+            ok++;
+            logLine(`${label} -> OK`, "ok");
+          }
+        } catch (err) {
+          failed++;
+          logLine(`${label} -> ERROR: ${err.message}`, "err");
+        }
+      }
+
+      setStatus(`Done. OK: ${ok}, Failed: ${failed}.`);
+      dom.sendBtn.disabled = false;
+      dom.validateBtn.disabled = false;
+    }
+
+    function handleValidate() {
+      try {
+        const payloads = parseInputLines();
+        clearLog();
+        payloads.forEach((p, idx) => {
+          logLine(`#${idx + 1} ready (matchId=${p.matchId})`, "ok");
+        });
+        setStatus(`Validated ${payloads.length} payloads.`);
+      } catch (err) {
+        clearLog();
+        logLine(err.message, "err");
+        setStatus("Validation failed.");
+      }
+    }
+
+    async function handleSend() {
+      try {
+        const payloads = parseInputLines();
+        await sendPayloads(payloads);
+      } catch (err) {
+        clearLog();
+        logLine(err.message, "err");
+        setStatus("Nothing sent.");
+      }
+    }
+
+    dom.validateBtn?.addEventListener("click", handleValidate);
+    dom.sendBtn?.addEventListener("click", handleSend);
+  </script>
+</body>
+</html>

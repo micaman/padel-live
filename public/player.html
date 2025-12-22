@@ -175,6 +175,128 @@
     .player-link:hover {
       text-decoration: underline;
     }
+
+    .summary-card {
+      position: relative;
+    }
+
+    .summary-card .icon {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: rgba(247, 201, 72, 0.16);
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.05em;
+    }
+
+    .grid-two {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+
+    .calendar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      padding-top: 6px;
+    }
+
+    .calendar-month {
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 8px;
+    }
+
+    .calendar-month h4 {
+      margin: 0 0 6px;
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .calendar-month-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 14px);
+      gap: 3px;
+    }
+
+    .calendar-cell {
+      width: 14px;
+      height: 14px;
+      border-radius: 2px;
+      background: #1f2330;
+      border: 1px solid #1f2330;
+    }
+
+    .calendar-cell.level-1 { background: #234d26; border-color: #234d26; }
+    .calendar-cell.level-2 { background: #2e8b3a; border-color: #2e8b3a; }
+    .calendar-cell.level-3 { background: #40c463; border-color: #40c463; }
+    .calendar-cell.level-4 { background: #30e57a; border-color: #30e57a; }
+
+    .calendar-legend {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    .legend-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      border: 1px solid #1f2330;
+    }
+
+    .finance-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .finance-table th,
+    .finance-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .finance-table th {
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+
+    .sortable {
+      cursor: pointer;
+    }
+
+    .sort-indicator {
+      font-size: 10px;
+      opacity: 0.6;
+      margin-left: 4px;
+    }
+
+    .best-cell-good {
+      color: #3ac97c;
+      font-weight: 600;
+    }
+
+    .best-cell-bad {
+      color: #ff6b6b;
+      font-weight: 600;
+    }
   </style>
 </head>
 
@@ -191,28 +313,39 @@
 
     <section class="summary-grid" id="summaryGrid">
       <div class="summary-card">
+        <div class="icon">M</div>
         <div class="label">Matches</div>
         <div class="value" id="summaryMatches">0</div>
       </div>
       <div class="summary-card">
+        <div class="icon">W</div>
         <div class="label">Wins</div>
         <div class="value" id="summaryWins">0</div>
       </div>
       <div class="summary-card">
+        <div class="icon">L</div>
         <div class="label">Losses</div>
         <div class="value" id="summaryLosses">0</div>
       </div>
       <div class="summary-card">
+        <div class="icon">%</div>
         <div class="label">Win %</div>
         <div class="value" id="summaryWinPct">0%</div>
       </div>
       <div class="summary-card">
+        <div class="icon">W+</div>
         <div class="label">Avg Winners</div>
         <div class="value" id="summaryAvgWinners">0</div>
       </div>
       <div class="summary-card">
+        <div class="icon">E-</div>
         <div class="label">Avg Errors</div>
         <div class="value" id="summaryAvgErrors">0</div>
+      </div>
+      <div class="summary-card">
+        <div class="icon">€</div>
+        <div class="label">Total Spent</div>
+        <div class="value" id="summarySpent">€0.00</div>
       </div>
     </section>
 
@@ -244,6 +377,41 @@
     <section class="panel">
       <h2>By Day of Week</h2>
       <div id="breakdownDay" class="breakdown-table"></div>
+    </section>
+
+    <section class="panel">
+      <h2>By Match Level</h2>
+      <div id="breakdownLevel" class="breakdown-table"></div>
+    </section>
+
+    <section class="panel">
+      <h2>By Time of Match</h2>
+      <div id="breakdownTime" class="breakdown-table"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Finance</h2>
+      <div class="grid-two">
+        <div>
+          <div class="label">Total Spent</div>
+          <div class="value" id="financeTotal">€0.00</div>
+        </div>
+      </div>
+      <div class="grid-two" style="margin-top:12px;">
+        <div>
+          <h3 style="margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">By Month</h3>
+          <table class="finance-table" id="financeByMonth"></table>
+        </div>
+        <div>
+          <h3 style="margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">By Location</h3>
+          <table class="finance-table" id="financeByLocation"></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Match Calendar</h2>
+      <div id="matchCalendar" class="calendar"></div>
     </section>
   </div>
 

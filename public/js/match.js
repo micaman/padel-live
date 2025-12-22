@@ -39,6 +39,9 @@ const state = {
   matchStatus: null,
   winnerTeam: null,
   finishedAt: null,
+  scheduledAt: null,
+  matchLevel: null,
+  matchCost: null,
   isMatchFinished: false
 };
 
@@ -78,12 +81,18 @@ const dom = {
   matchLocationLogo: document.getElementById("matchLocationLogo"),
   matchTypeDisplay: document.getElementById("matchTypeDisplay"),
   matchLocationDisplay: document.getElementById("matchLocationDisplay"),
+  scheduledAtDisplay: document.getElementById("scheduledAtDisplay"),
+  matchLevelDisplay: document.getElementById("matchLevelDisplay"),
+  matchCostDisplay: document.getElementById("matchCostDisplay"),
   noteDisplay: document.getElementById("noteDisplay"),
   matchMetaForm: document.getElementById("matchMetaForm"),
   matchTypeSelect: document.getElementById("matchTypeSelect"),
   matchLocationSelect: document.getElementById("matchLocationSelect"),
   matchTypeNewInput: document.getElementById("matchTypeNewInput"),
   matchLocationNewInput: document.getElementById("matchLocationNewInput"),
+  scheduledAtInput: document.getElementById("scheduledAtInput"),
+  matchLevelSelect: document.getElementById("matchLevelSelect"),
+  matchCostInput: document.getElementById("matchCostInput"),
   noteInput: document.getElementById("noteInput"),
   saveMetaBtn: document.getElementById("saveMetaBtn"),
   timelineChart: document.getElementById("timelineChart"),
@@ -110,6 +119,56 @@ function escapeHtml(value) {
         return ch;
     }
   });
+}
+
+function formatLocalDateTime(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  });
+}
+
+function formatDatetimeLocalValue(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (num) => String(num).padStart(2, "0");
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function normalizeMatchCost(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function formatMatchCost(value) {
+  const num = normalizeMatchCost(value);
+  if (num === null) return "";
+  return `€${num.toFixed(2)}`;
+}
+
+function normalizeMatchLevel(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().toUpperCase();
+  return trimmed || null;
+}
+
+function ensureSelectHasValue(selectEl, value, label) {
+  if (!selectEl || !value) return;
+  const exists = Array.from(selectEl.options).some((opt) => opt.value === value);
+  if (exists) return;
+  const opt = document.createElement("option");
+  opt.value = value;
+  opt.textContent = label || value;
+  selectEl.appendChild(opt);
 }
 
 function getPlayerRef(index) {
@@ -237,7 +296,10 @@ async function autoLoadFromServer(matchId) {
       matchLocationOptions: data.matchLocationOptions,
       status: data.status,
       winnerTeam: data.winnerTeam,
-      finishedAt: data.finishedAt
+      finishedAt: data.finishedAt,
+      scheduledAt: data.scheduledAt,
+      matchLevel: data.matchLevel,
+      matchCost: data.matchCost
     });
     showMainView();
     syncSlider();
@@ -290,7 +352,10 @@ function getMetaButtonLabel() {
   const hasMeta =
     Boolean(state.matchNote && state.matchNote.trim()) ||
     Boolean(state.matchType) ||
-    Boolean(state.matchLocation);
+    Boolean(state.matchLocation) ||
+    Boolean(state.scheduledAt) ||
+    Boolean(state.matchLevel) ||
+    state.matchCost !== null;
   return hasMeta ? "Edit match info" : "Add match info";
 }
 
@@ -328,6 +393,16 @@ function updateMatchMeta(meta = {}) {
   if (Object.prototype.hasOwnProperty.call(meta, "finishedAt")) {
     state.finishedAt = meta.finishedAt || null;
   }
+  if (Object.prototype.hasOwnProperty.call(meta, "scheduledAt")) {
+    state.scheduledAt = meta.scheduledAt || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(meta, "matchLevel")) {
+    state.matchLevel = normalizeMatchLevel(meta.matchLevel);
+  }
+  if (Object.prototype.hasOwnProperty.call(meta, "matchCost")) {
+    const normalizedCost = normalizeMatchCost(meta.matchCost);
+    state.matchCost = normalizedCost;
+  }
 
   state.isMatchFinished = state.matchStatus === "finished";
 
@@ -339,13 +414,24 @@ function updateMatchMeta(meta = {}) {
 
 function syncMatchMetaDisplay() {
   if (dom.noteDisplay) {
-    dom.noteDisplay.textContent = state.matchNote || "—";
+    dom.noteDisplay.textContent = state.matchNote || "-";
   }
   if (dom.matchTypeDisplay) {
-    dom.matchTypeDisplay.textContent = state.matchType?.name || "—";
+    dom.matchTypeDisplay.textContent = state.matchType?.name || "-";
   }
   if (dom.matchLocationDisplay) {
-    dom.matchLocationDisplay.textContent = state.matchLocation?.name || "—";
+    dom.matchLocationDisplay.textContent = state.matchLocation?.name || "-";
+  }
+  if (dom.scheduledAtDisplay) {
+    const formatted = formatLocalDateTime(state.scheduledAt);
+    dom.scheduledAtDisplay.textContent = formatted || "-";
+  }
+  if (dom.matchLevelDisplay) {
+    dom.matchLevelDisplay.textContent = state.matchLevel || "-";
+  }
+  if (dom.matchCostDisplay) {
+    const costLabel = formatMatchCost(state.matchCost);
+    dom.matchCostDisplay.textContent = costLabel || "-";
   }
 
   if (dom.matchTypeIcon) {
@@ -429,6 +515,19 @@ function syncMatchMetaForm() {
       "No location"
     );
   }
+  if (dom.scheduledAtInput) {
+    dom.scheduledAtInput.value = formatDatetimeLocalValue(state.scheduledAt);
+  }
+  if (dom.matchLevelSelect) {
+    if (state.matchLevel) {
+      ensureSelectHasValue(dom.matchLevelSelect, state.matchLevel, state.matchLevel);
+    }
+    dom.matchLevelSelect.value = state.matchLevel || "";
+  }
+  if (dom.matchCostInput) {
+    dom.matchCostInput.value =
+      state.matchCost === null || state.matchCost === undefined ? "" : String(state.matchCost);
+  }
   if (dom.noteInput) {
     dom.noteInput.value = state.matchNote || "";
   }
@@ -504,6 +603,39 @@ async function handleSaveMatchMeta() {
     }
   }
 
+  if (dom.scheduledAtInput) {
+    const raw = (dom.scheduledAtInput.value || "").trim();
+    if (raw) {
+      const parsedDate = new Date(raw);
+      if (Number.isNaN(parsedDate.getTime())) {
+        setError("Enter a valid scheduled date and time.");
+        return;
+      }
+      payload.scheduledAt = parsedDate.toISOString();
+    } else {
+      payload.scheduledAt = null;
+    }
+  }
+
+  if (dom.matchLevelSelect) {
+    const levelValue = dom.matchLevelSelect.value;
+    payload.matchLevel = levelValue ? normalizeMatchLevel(levelValue) : null;
+  }
+
+  if (dom.matchCostInput) {
+    const rawCost = (dom.matchCostInput.value || "").trim();
+    if (rawCost === "") {
+      payload.matchCost = null;
+    } else {
+      const parsedCost = Number(rawCost);
+      if (!Number.isFinite(parsedCost)) {
+        setError("Enter a valid match cost.");
+        return;
+      }
+      payload.matchCost = Math.round(parsedCost * 100) / 100;
+    }
+  }
+
   try {
     const res = await fetch(`/api/match/${state.currentMatchId}/note`, {
       method: "POST",
@@ -523,7 +655,10 @@ async function handleSaveMatchMeta() {
       matchLocationOptions: data.matchLocationOptions || state.matchLocationOptions,
       status: data.status ?? state.matchStatus,
       winnerTeam: data.winnerTeam ?? state.winnerTeam,
-      finishedAt: data.finishedAt ?? state.finishedAt
+      finishedAt: data.finishedAt ?? state.finishedAt,
+      scheduledAt: data.scheduledAt ?? payload.scheduledAt ?? state.scheduledAt,
+      matchLevel: data.matchLevel ?? payload.matchLevel ?? state.matchLevel,
+      matchCost: data.matchCost ?? payload.matchCost ?? state.matchCost
     });
     toggleMatchMetaForm(false);
     setStatus("Match info saved.");
@@ -606,7 +741,10 @@ function handleManualLoad() {
     matchLocationOptions: [],
     status: null,
     winnerTeam: null,
-    finishedAt: null
+    finishedAt: null,
+    scheduledAt: null,
+    matchLevel: null,
+    matchCost: null
   });
   syncSlider();
   buildFromVisible();
@@ -1302,3 +1440,4 @@ function setError(message) {
 function clearError() {
   setError("");
 }
+

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -14,10 +14,10 @@
   <div class="container">
     <h1>Padel Payload Viewer</h1>
     <div class="page-nav">
-      <a class="nav-link" href="/">← Match list</a>
+      <a class="nav-link" href="/">â† Match list</a>
       <div class="nav-spacer"></div>
-      <a id="prevMatchLink" class="nav-link nav-link--muted" href="#" style="display:none;">← Previous match</a>
-      <a id="nextMatchLink" class="nav-link nav-link--muted" href="#" style="display:none;">Next match →</a>
+      <a id="prevMatchLink" class="nav-link nav-link--muted" href="#" style="display:none;">â† Previous match</a>
+      <a id="nextMatchLink" class="nav-link nav-link--muted" href="#" style="display:none;">Next match â†’</a>
     </div>
 
     <div id="status" class="status"></div>
@@ -124,24 +124,36 @@
       <!-- NOTE PANEL -->
       <div class="panel" id="notePanel">
         <h3>Match Info</h3>
-        <div class="match-meta-display">
+                <div class="match-meta-display">
           <div class="match-meta-row">
             <span class="match-meta-label">Type</span>
             <div class="match-meta-value with-media">
               <img id="matchTypeIcon" class="match-meta-media" alt="" />
-              <span id="matchTypeDisplay">—</span>
+              <span id="matchTypeDisplay">ƒ?"</span>
             </div>
           </div>
           <div class="match-meta-row">
             <span class="match-meta-label">Location</span>
             <div class="match-meta-value with-media">
               <img id="matchLocationLogo" class="match-meta-media" alt="" />
-              <span id="matchLocationDisplay">—</span>
+              <span id="matchLocationDisplay">ƒ?"</span>
             </div>
+          </div>
+          <div class="match-meta-row">
+            <span class="match-meta-label">Scheduled</span>
+            <div class="match-meta-value" id="scheduledAtDisplay">ƒ?"</div>
+          </div>
+          <div class="match-meta-row">
+            <span class="match-meta-label">Level</span>
+            <div class="match-meta-value" id="matchLevelDisplay">ƒ?"</div>
+          </div>
+          <div class="match-meta-row">
+            <span class="match-meta-label">Cost</span>
+            <div class="match-meta-value" id="matchCostDisplay">ƒ?"</div>
           </div>
           <div class="match-meta-row note-row">
             <span class="match-meta-label">Note</span>
-            <div class="match-meta-note" id="noteDisplay">—</div>
+            <div class="match-meta-note" id="noteDisplay">ƒ?"</div>
           </div>
         </div>
         <div id="matchMetaForm" class="match-meta-form" style="display:none;">
@@ -152,6 +164,22 @@
           <label for="matchLocationSelect">Location</label>
           <select id="matchLocationSelect"></select>
           <input id="matchLocationNewInput" class="match-meta-new-input" placeholder="New location name" style="display:none;">
+
+          <label for="scheduledAtInput">Scheduled date & time</label>
+          <input type="datetime-local" id="scheduledAtInput">
+
+          <label for="matchLevelSelect">Match Level</label>
+          <select id="matchLevelSelect">
+            <option value="">No level</option>
+            <option value="M2">M2</option>
+            <option value="M3">M3</option>
+            <option value="M4">M4</option>
+            <option value="M5">M5</option>
+            <option value="M6">M6</option>
+          </select>
+
+          <label for="matchCostInput">Match Cost (€)</label>
+          <input type="number" id="matchCostInput" min="0" step="0.01" placeholder="e.g. 12.50">
 
           <label for="noteInput">Match Note</label>
           <textarea id="noteInput" rows="3"></textarea>
@@ -231,3 +259,7 @@
 
 </body>
 </html>
+
+
+
+

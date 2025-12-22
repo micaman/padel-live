@@ -10,7 +10,8 @@ const summaryEls = {
   losses: document.getElementById("summaryLosses"),
   winPct: document.getElementById("summaryWinPct"),
   avgWinners: document.getElementById("summaryAvgWinners"),
-  avgErrors: document.getElementById("summaryAvgErrors")
+  avgErrors: document.getElementById("summaryAvgErrors"),
+  totalSpent: document.getElementById("summarySpent")
 };
 
 const breakdownContainers = {
@@ -18,8 +19,20 @@ const breakdownContainers = {
   location: document.getElementById("breakdownLocation"),
   partner: document.getElementById("breakdownPartner"),
   opponent: document.getElementById("breakdownOpponent"),
-  day: document.getElementById("breakdownDay")
+  day: document.getElementById("breakdownDay"),
+  level: document.getElementById("breakdownLevel"),
+  time: document.getElementById("breakdownTime")
 };
+
+const financeEls = {
+  total: document.getElementById("financeTotal"),
+  byMonth: document.getElementById("financeByMonth"),
+  byLocation: document.getElementById("financeByLocation")
+};
+
+const tableSortState = new Map();
+
+const calendarContainer = document.getElementById("matchCalendar");
 
 function setStatus(message) {
   if (statusEl) statusEl.textContent = message || "";
@@ -50,7 +63,7 @@ function escapeHtml(value) {
 }
 
 function formatPercent(value) {
-  if (value == null || Number.isNaN(value)) return "—";
+  if (value == null || Number.isNaN(value)) return "-";
   return `${(value * 100).toFixed(1)}%`;
 }
 
@@ -61,9 +74,9 @@ function formatNumber(value, decimals = 1) {
 }
 
 function formatDate(value) {
-  if (!value) return "—";
+  if (!value) return "-";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
+  if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
@@ -71,8 +84,15 @@ function formatDate(value) {
   });
 }
 
+function formatCurrency(value) {
+  if (value == null || Number.isNaN(value)) return "€0.00";
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "€0.00";
+  return `€${num.toFixed(2)}`;
+}
+
 function formatNameLink(entry) {
-  if (!entry || !entry.name) return "—";
+  if (!entry || !entry.name) return "-";
   if (entry.id) {
     return `<a class="player-link" href="/player/${entry.id}">${escapeHtml(entry.name)}</a>`;
   }
@@ -87,6 +107,9 @@ function renderSummary(data) {
   summaryEls.winPct.textContent = formatPercent(data.winPct);
   summaryEls.avgWinners.textContent = formatNumber(data.avgWinners ?? 0);
   summaryEls.avgErrors.textContent = formatNumber(data.avgErrors ?? 0);
+  if (summaryEls.totalSpent) {
+    summaryEls.totalSpent.textContent = formatCurrency(data.totalSpent ?? 0);
+  }
 }
 
 function renderBreakdown(container, rows, opts = {}) {
@@ -96,21 +119,56 @@ function renderBreakdown(container, rows, opts = {}) {
     return;
   }
 
+  const containerId = container.id || `table-${Math.random().toString(36).slice(2)}`;
+  const columns = [
+    { key: "label", label: "Category", sortable: false },
+    { key: "matches", label: "Matches", sortable: true },
+    { key: "wins", label: "Wins", sortable: true },
+    { key: "winPct", label: "Win %", sortable: true },
+    { key: "avgWinners", label: "Avg W", sortable: true },
+    { key: "avgErrors", label: "Avg E", sortable: true }
+  ];
+
+  const sortState = tableSortState.get(containerId) || { key: "matches", dir: "desc" };
+  const sortedRows = [...rows].sort((a, b) => {
+    const key = sortState.key;
+    const dir = sortState.dir === "asc" ? 1 : -1;
+    const va = a[key] ?? -Infinity;
+    const vb = b[key] ?? -Infinity;
+    if (va === vb) return 0;
+    return va > vb ? dir : -dir;
+  });
+
+  const best = {};
+  ["matches", "wins", "winPct", "avgWinners", "avgErrors"].forEach((key) => {
+    best[key] = Math.max(...rows.map((r) => (Number.isFinite(r[key]) ? r[key] : -Infinity)));
+  });
+
+  const cellClassFor = (key, value) => {
+    if (!Number.isFinite(value)) return "";
+    if (key === "avgErrors") {
+      return value === best[key] ? "best-cell-bad" : "";
+    }
+    return value === best[key] ? "best-cell-good" : "";
+  };
+
   const allowLinks = Boolean(opts.allowLinks);
   const html = `
     <table>
       <thead>
         <tr>
-          <th>Category</th>
-          <th class="number">Matches</th>
-          <th class="number">Wins</th>
-          <th class="number">Win %</th>
-          <th class="number">Avg W</th>
-          <th class="number">Avg E</th>
+          ${columns
+            .map((col) => {
+              const indicator =
+                sortState.key === col.key ? `<span class="sort-indicator">${sortState.dir === "asc" ? "▲" : "▼"}</span>` : "";
+              const classes = ["number", col.sortable ? "sortable" : null].filter(Boolean).join(" ");
+              return `<th class="${classes}" ${col.sortable ? `data-sort-key="${col.key}"` : ""}>${col.label}${indicator}</th>`;
+            })
+            .join("")}
         </tr>
       </thead>
       <tbody>
-        ${rows
+        ${sortedRows
           .map((row) => {
             const label = allowLinks && row.relatedPlayerId
               ? `<a class="player-link" href="/player/${row.relatedPlayerId}">${escapeHtml(row.label)}</a>`
@@ -118,11 +176,11 @@ function renderBreakdown(container, rows, opts = {}) {
             return `
               <tr>
                 <td>${label}</td>
-                <td class="number">${row.matches}</td>
-                <td class="number">${row.wins}</td>
-                <td class="number">${formatPercent(row.winPct)}</td>
-                <td class="number">${formatNumber(row.avgWinners ?? 0)}</td>
-                <td class="number">${formatNumber(row.avgErrors ?? 0)}</td>
+                <td class="number ${cellClassFor("matches", row.matches)}">${row.matches}</td>
+                <td class="number ${cellClassFor("wins", row.wins)}">${row.wins}</td>
+                <td class="number ${cellClassFor("winPct", row.winPct)}">${formatPercent(row.winPct)}</td>
+                <td class="number ${cellClassFor("avgWinners", row.avgWinners)}">${formatNumber(row.avgWinners ?? 0)}</td>
+                <td class="number ${cellClassFor("avgErrors", row.avgErrors)}">${formatNumber(row.avgErrors ?? 0)}</td>
               </tr>
             `;
           })
@@ -131,6 +189,167 @@ function renderBreakdown(container, rows, opts = {}) {
     </table>
   `;
   container.innerHTML = html;
+
+  container.querySelectorAll("th[data-sort-key]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sortKey;
+      const current = tableSortState.get(containerId) || { key: "matches", dir: "desc" };
+      const dir = current.key === key && current.dir === "desc" ? "asc" : "desc";
+      tableSortState.set(containerId, { key, dir });
+      renderBreakdown(container, rows, opts);
+    });
+  });
+}
+
+function renderFinance(finance) {
+  if (financeEls.total) {
+    financeEls.total.textContent = formatCurrency(finance?.totalSpent ?? 0);
+  }
+
+  const byMonth = Array.isArray(finance?.byMonth) ? finance.byMonth : [];
+  const byLocation = Array.isArray(finance?.byLocation) ? finance.byLocation : [];
+
+  const renderTable = (rows) => {
+    if (!rows.length) {
+      return '<div class="empty-state">No cost data yet.</div>';
+    }
+    const bestCost = Math.max(...rows.map((r) => (Number.isFinite(r.cost) ? r.cost : -Infinity)));
+    return `
+      <tr>
+        <th>Label</th>
+        <th class="number">Spent</th>
+      </tr>
+      ${rows
+        .map(
+          (row) => `
+            <tr>
+              <td>${escapeHtml(row.label || "-")}</td>
+              <td class="number ${row.cost === bestCost ? "best-cell-bad" : ""}">${formatCurrency(row.cost ?? 0)}</td>
+            </tr>
+          `
+        )
+        .join("")}
+    `;
+  };
+
+  if (financeEls.byMonth) {
+    financeEls.byMonth.innerHTML = renderTable(byMonth);
+  }
+  if (financeEls.byLocation) {
+    financeEls.byLocation.innerHTML = renderTable(byLocation);
+  }
+}
+
+function renderCalendar(entries) {
+  if (!calendarContainer) return;
+  const dates = Array.isArray(entries) ? entries : [];
+  if (!dates.length) {
+    calendarContainer.innerHTML = '<div class="empty-state">No matches recorded yet.</div>';
+    return;
+  }
+
+  const countByDate = new Map();
+  let minDate = null;
+  dates.forEach((entry) => {
+    if (!entry || !entry.date) return;
+    const count = Number(entry.count || 0);
+    countByDate.set(entry.date, Number.isFinite(count) ? count : 0);
+    const d = new Date(entry.date);
+    if (!Number.isNaN(d.getTime())) {
+      if (!minDate || d < minDate) {
+        minDate = d;
+      }
+    }
+  });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = minDate ? new Date(minDate) : new Date(today);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(1); // begin at first day of first activity month
+
+  const days = [];
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  for (let t = start.getTime(); t <= today.getTime(); t += MS_PER_DAY) {
+    const d = new Date(t);
+    const iso = d.toISOString().slice(0, 10);
+    const count = countByDate.get(iso) || 0;
+    days.push({ date: iso, count });
+  }
+
+  const maxCount = days.reduce((max, d) => Math.max(max, d.count), 0);
+  const levelFor = (count) => {
+    if (count === 0) return 0;
+    if (maxCount <= 4) return Math.min(count, 4);
+    if (count >= maxCount * 0.75) return 4;
+    if (count >= maxCount * 0.5) return 3;
+    if (count >= maxCount * 0.25) return 2;
+    return 1;
+  };
+
+  const months = new Map();
+  days.forEach((day) => {
+    const d = new Date(day.date);
+    if (Number.isNaN(d.getTime())) return;
+    const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const monthLabel = d.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+    if (!months.has(monthKey)) {
+      months.set(monthKey, { label: monthLabel, cells: [] });
+    }
+    months.get(monthKey).cells.push({
+      weekday: d.getDay(),
+      count: day.count,
+      date: day.date
+    });
+  });
+
+  const monthBlocks = Array.from(months.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([, month]) => {
+      // pad to start on Sunday with blanks to align weekdays
+      const firstWeekday = new Date(`${month.cells[0].date}T00:00:00Z`).getDay();
+      const paddedCells = [];
+      for (let i = 0; i < firstWeekday; i++) paddedCells.push({ count: 0, date: null });
+      paddedCells.push(
+        ...month.cells.map((cell) => ({
+          ...cell,
+          level: levelFor(cell.count),
+        }))
+      );
+
+      const grid = paddedCells
+        .map((cell) => {
+          const levelClass = cell.level ? `level-${cell.level}` : "";
+          const title = cell.date ? `${cell.date}: ${cell.count} match${cell.count === 1 ? "" : "es"}` : "";
+          return `<div class="calendar-cell ${levelClass}" title="${title}"></div>`;
+        })
+        .join("");
+
+      return `
+        <div class="calendar-month">
+          <h4>${escapeHtml(month.label)}</h4>
+          <div class="calendar-month-grid">${grid}</div>
+        </div>
+      `;
+    })
+    .join("");
+
+  const legendLevels = [0, 1, 2, 3, 4]
+    .map(
+      (lvl) => `<span class="legend-swatch ${lvl ? `level-${lvl}` : ""}" title="${
+        lvl === 0 ? "No matches" : ""
+      }"></span>`
+    )
+    .join("");
+
+  calendarContainer.innerHTML = `
+    <div class="calendar">${monthBlocks}</div>
+    <div class="calendar-legend">
+      <span>Less</span>
+      ${legendLevels}
+      <span>More</span>
+    </div>
+  `;
 }
 
 function renderRecent(matches) {
@@ -142,18 +361,18 @@ function renderRecent(matches) {
 
   const items = matches
     .map((match) => {
-      const partnerLabel = match.partner ? formatNameLink(match.partner) : "—";
+      const partnerLabel = match.partner ? formatNameLink(match.partner) : "-";
       const opponentsLabel =
         match.opponents && match.opponents.length
           ? match.opponents.map(formatNameLink).join(" / ")
-          : "—";
-      const context = [match.matchType, match.matchLocation].filter(Boolean).join(" · ") || "—";
+          : "-";
+      const context = [match.matchType, match.matchLocation].filter(Boolean).join(" · ") || "-";
       const scorePart = match.score ? ` · ${escapeHtml(match.score)}` : "";
       return `
         <div class="recent-card">
           <div>
             <strong>Result</strong>
-            <span>${escapeHtml(match.result || "—")}${scorePart}</span>
+            <span>${escapeHtml(match.result || "-")}${scorePart}</span>
           </div>
           <div>
             <strong>Partner</strong>
@@ -192,7 +411,7 @@ async function loadProfile() {
   }
 
   try {
-    setStatus("Loading profile…");
+    setStatus("Loading profile...");
     setError("");
     const res = await fetch(`/api/player/${playerId}/profile`);
     if (!res.ok) {
@@ -216,6 +435,10 @@ async function loadProfile() {
     renderBreakdown(breakdownContainers.partner, data.breakdowns?.byPartner || [], { allowLinks: true });
     renderBreakdown(breakdownContainers.opponent, data.breakdowns?.byOpponent || [], { allowLinks: true });
     renderBreakdown(breakdownContainers.day, data.breakdowns?.byDayOfWeek || []);
+    renderBreakdown(breakdownContainers.level, data.breakdowns?.byLevel || []);
+    renderBreakdown(breakdownContainers.time, data.breakdowns?.byTimeOfDay || []);
+    renderFinance(data.finance || {});
+    renderCalendar(data.calendarDates || []);
     renderRecent(data.recentMatches || []);
 
     setStatus(`Loaded profile with ${data.summary?.totalMatches ?? 0} matches.`);
