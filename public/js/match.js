@@ -13,12 +13,35 @@ const TIMELINE_ARROW_COLOR = "#000000";
 const GAME_MARKER_COLOR = "rgba(255,255,255,0.35)";
 const SET_MARKER_COLOR = "#f7c948";
 const TIMELINE_POINT_RADIUS = 9;
+const METRIC_COLORS = ["#f7c948", "#5ab0ff", "#57d657", "#ff6b6b", "#a970ff", "#00d1b2", "#f5a623"];
+const METRIC_DEFS = [
+  { key: "calories", label: "Calories", path: ["metrics", "calories"] },
+  { key: "distance", label: "Distance", path: ["metrics", "distance"] },
+  { key: "steps", label: "Steps", path: ["metrics", "steps"] },
+  { key: "stressScore", label: "Stress Score", path: ["metrics", "stressScore"] },
+  { key: "respirationRate", label: "Respiration Rate", path: ["metrics", "respirationRate"] },
+  { key: "heartRateMain", label: "Heart Rate (metrics)", path: ["metrics", "heartRate"] },
+  {
+    key: "heartRateAdditional",
+    label: "Heart Rate (additional)",
+    path: ["metrics", "additionalMetrics", "heartRate"]
+  },
+  { key: "temperature", label: "Temperature", path: ["metrics", "additionalMetrics", "temperature"] },
+  { key: "pressure", label: "Pressure", path: ["metrics", "additionalMetrics", "pressure"] },
+  {
+    key: "oxygenSaturation",
+    label: "Oxygen Saturation",
+    path: ["metrics", "additionalMetrics", "oxygenSaturation"]
+  },
+  { key: "altitude", label: "Altitude", path: ["metrics", "additionalMetrics", "altitude"] }
+];
 
 const state = {
   snapshots: [],
   visibleSnapshots: [],
   impactChart: null,
   timelineChart: null,
+  metricCharts: {},
   currentNames: ["P1", "P2", "P3", "P4"],
   playerRefs: [
     { id: null, name: "P1" },
@@ -99,6 +122,8 @@ const dom = {
   saveMetaBtn: document.getElementById("saveMetaBtn"),
   timelineChart: document.getElementById("timelineChart"),
   timelineEmpty: document.getElementById("timelineEmpty"),
+  metricsCharts: document.getElementById("metricsCharts"),
+  metricsEmpty: document.getElementById("metricsEmpty"),
   prevMatchLink: document.getElementById("prevMatchLink"),
   nextMatchLink: document.getElementById("nextMatchLink")
 };
@@ -867,6 +892,7 @@ function buildFromVisible() {
   updatePlayerStatsTable();
   updateTimeStats();
   updateImpactChart();
+  updateMetricsCharts();
   updateTimelineChart();
   renderKeyMoments();
 }
@@ -1182,6 +1208,132 @@ function updateImpactChart() {
         }
       }
     }
+  });
+}
+
+function readMetricValue(snap, path) {
+  if (!snap) return null;
+  let current = snap;
+  for (const segment of path) {
+    if (!current || typeof current !== "object") return null;
+    current = current[segment];
+  }
+  if (current === null || current === undefined || current === "") return null;
+  const num = Number(current);
+  return Number.isFinite(num) ? num : null;
+}
+
+function collectMetricSeries() {
+  if (!state.visibleSnapshots.length) return [];
+  const times = computeRelativePointTimes(state.visibleSnapshots);
+
+  return METRIC_DEFS.map((def, idx) => {
+    const points = state.visibleSnapshots.map((snap, snapIdx) => ({
+      x: times[snapIdx] ?? snapIdx,
+      y: readMetricValue(snap, def.path)
+    }));
+    const hasValue = points.some((pt) => pt.y !== null);
+    return {
+      ...def,
+      color: METRIC_COLORS[idx % METRIC_COLORS.length],
+      points,
+      hasValue
+    };
+  }).filter((series) => series.hasValue);
+}
+
+function destroyMetricCharts() {
+  Object.values(state.metricCharts).forEach((chart) => chart.destroy());
+  state.metricCharts = {};
+}
+
+function ensureMetricCard(key, label) {
+  if (!dom.metricsCharts) return null;
+  let card = dom.metricsCharts.querySelector(`[data-metric="${key}"]`);
+  if (!card) {
+    card = document.createElement("div");
+    card.className = "metric-card";
+    card.setAttribute("data-metric", key);
+    const title = document.createElement("div");
+    title.className = "metric-title";
+    title.textContent = label;
+    const canvas = document.createElement("canvas");
+    canvas.className = "metric-chart";
+    card.appendChild(title);
+    card.appendChild(canvas);
+    dom.metricsCharts.appendChild(card);
+    return canvas;
+  }
+  return card.querySelector("canvas");
+}
+
+function updateMetricsCharts() {
+  if (!dom.metricsCharts) return;
+
+  const seriesList = collectMetricSeries();
+
+  if (!seriesList.length) {
+    destroyMetricCharts();
+    dom.metricsCharts.innerHTML = "";
+    if (dom.metricsEmpty) dom.metricsEmpty.style.display = "block";
+    return;
+  }
+
+  if (dom.metricsEmpty) dom.metricsEmpty.style.display = "none";
+
+  destroyMetricCharts();
+  dom.metricsCharts.innerHTML = "";
+
+  seriesList.forEach((series) => {
+    const canvas = ensureMetricCard(series.key, series.label);
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    state.metricCharts[series.key] = new Chart(ctx, {
+      type: "line",
+      data: {
+        datasets: [
+          {
+            label: series.label,
+            data: series.points,
+            parsing: false,
+            borderColor: series.color,
+            backgroundColor: series.color,
+            tension: 0.25,
+            pointRadius: 2,
+            spanGaps: true
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            type: "linear",
+            title: { display: true, text: "Elapsed time", color: "#f5f5f5" },
+            ticks: {
+              color: "#f5f5f5",
+              callback: (value) => formatDuration(Number(value))
+            },
+            grid: { color: "rgba(255,255,255,0.1)" }
+          },
+          y: {
+            ticks: { color: "#f5f5f5" },
+            grid: { color: "rgba(255,255,255,0.08)" }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) =>
+                items.length ? `Elapsed: ${formatDuration(items[0].parsed.x)}` : "",
+              label: (item) => `${series.label}: ${item.parsed.y ?? "N/A"}`
+            }
+          }
+        }
+      }
+    });
   });
 }
 

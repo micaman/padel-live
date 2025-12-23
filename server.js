@@ -88,6 +88,20 @@ function parseNullableId(raw) {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseNullableNumber(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseNullableDate(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === '') return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 function formatMatchTypeRow(row) {
   if (!row) return null;
   return {

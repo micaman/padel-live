@@ -482,3 +482,37 @@ th {
   opacity: 0.7;
   pointer-events: none;
 }
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.metric-card {
+  background: #111217;
+  border: 1px solid #25293a;
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 200px;
+}
+
+.metric-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.8;
+}
+
+.metric-chart {
+  width: 100% !important;
+  height: 170px !important;
+}
+
+.metrics-empty {
+  font-size: 12px;
+  opacity: 0.7;
+}
