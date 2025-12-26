@@ -307,6 +307,36 @@
       color: #ff6b6b;
       font-weight: 600;
     }
+
+    .extreme-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+
+    .extreme-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .stat-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 13px;
+    }
+
+    .stat-line .label {
+      color: var(--text-muted);
+    }
+
+    .stat-line .value {
+      font-weight: 600;
+    }
   </style>
 </head>
 
@@ -356,6 +386,34 @@
         <div class="icon">€</div>
         <div class="label">Total Spent</div>
         <div class="value" id="summarySpent">€0.00</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Best & Worst Games</h2>
+      <div class="extreme-grid">
+        <div>
+          <h3 style="margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Best Games</h3>
+          <div id="bestGames" class="extreme-list"></div>
+        </div>
+        <div>
+          <h3 style="margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Toughest Games</h3>
+          <div id="worstGames" class="extreme-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Best & Worst Stats</h2>
+      <div class="extreme-grid">
+        <div>
+          <h3 style="margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Best Stats</h3>
+          <div id="bestStats" class="extreme-list"></div>
+        </div>
+        <div>
+          <h3 style="margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Worst Stats</h3>
+          <div id="worstStats" class="extreme-list"></div>
+        </div>
       </div>
     </section>
 

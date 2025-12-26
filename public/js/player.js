@@ -3,6 +3,10 @@ const errorEl = document.getElementById("error");
 const playerNameEl = document.getElementById("playerName");
 const subtitleEl = document.getElementById("playerSubtitle");
 const recentMatchesEl = document.getElementById("recentMatches");
+const bestGamesEl = document.getElementById("bestGames");
+const worstGamesEl = document.getElementById("worstGames");
+const bestStatsEl = document.getElementById("bestStats");
+const worstStatsEl = document.getElementById("worstStats");
 
 const summaryEls = {
   matches: document.getElementById("summaryMatches"),
@@ -97,6 +101,22 @@ function formatNameLink(entry) {
     return `<a class="player-link" href="/player/${entry.id}">${escapeHtml(entry.name)}</a>`;
   }
   return escapeHtml(entry.name);
+}
+
+function pickExtremeList(data, keys) {
+  if (!data) return [];
+  const candidates = Array.isArray(keys) ? keys : [keys];
+  for (const key of candidates) {
+    const direct = data[key];
+    if (Array.isArray(direct)) return direct;
+    if (direct && typeof direct === "object") return [direct];
+    if (data.extremes) {
+      const nested = data.extremes[key];
+      if (Array.isArray(nested)) return nested;
+      if (nested && typeof nested === "object") return [nested];
+    }
+  }
+  return [];
 }
 
 function renderSummary(data) {
@@ -403,9 +423,126 @@ function renderRecent(matches) {
   recentMatchesEl.innerHTML = items;
 }
 
+function renderExtremeGames(container, matches) {
+  if (!container) return;
+  if (!matches || !matches.length) {
+    container.innerHTML = '<div class="empty-state">No matches recorded yet.</div>';
+    return;
+  }
+  const items = matches
+    .map((match) => {
+      const partnerLabel = match.partner ? formatNameLink(match.partner) : "-";
+      const opponentsLabel =
+        match.opponents && match.opponents.length
+          ? match.opponents.map(formatNameLink).join(" / ")
+          : "-";
+      const context = [match.matchType, match.matchLocation].filter(Boolean).join(" | ") || "-";
+      const scorePart = match.score ? ` | ${escapeHtml(match.score)}` : "";
+      const resultText = `${escapeHtml(match.result || "-")}${scorePart}`;
+      const matchUrl = match.matchId ? `/match/${encodeURIComponent(match.matchId)}` : null;
+      const resultContent = matchUrl
+        ? `<a class="recent-result-link" href="${matchUrl}">${resultText}</a>`
+        : resultText;
+      return `
+        <div class="recent-card">
+          <div>
+            <strong>Result</strong>
+            <span>${resultContent}</span>
+          </div>
+          <div>
+            <strong>Partner</strong>
+            <span>${partnerLabel}</span>
+          </div>
+          <div>
+            <strong>Opponents</strong>
+            <span>${opponentsLabel}</span>
+          </div>
+          <div>
+            <strong>When</strong>
+            <span>${formatDate(match.finishedAt)}</span>
+          </div>
+          <div>
+            <strong>Context</strong>
+            <span>${escapeHtml(context)}</span>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  container.innerHTML = items;
+}
+
+function renderExtremeStats(container, stats) {
+  if (!container) return;
+  if (!stats || !stats.length) {
+    container.innerHTML = '<div class="empty-state">No stats available yet.</div>';
+    return;
+  }
+  const items = stats
+    .map((entry) => {
+      const value =
+        entry && entry.value != null
+          ? typeof entry.value === "number"
+            ? formatNumber(entry.value, entry.decimals ?? 2)
+            : escapeHtml(String(entry.value))
+          : "-";
+      const suffix = entry?.suffix ? ` ${escapeHtml(entry.suffix)}` : "";
+      return `
+        <div class="stat-line">
+          <span class="label">${escapeHtml(entry.label || "-")}</span>
+          <span class="value">${value}${suffix}</span>
+        </div>
+      `;
+    })
+    .join("");
+
+  container.innerHTML = items;
+}
+
 function getPlayerIdFromPath() {
   const match = window.location.pathname.match(/\/player\/(\d+)/);
   return match ? Number(match[1]) : null;
+}
+
+function deriveFallbackGames(recentMatches, kind) {
+  if (!Array.isArray(recentMatches) || !recentMatches.length) return [];
+  const wins = recentMatches.filter((m) =>
+    typeof m.result === "string" ? m.result.toLowerCase().startsWith("win") : false
+  );
+  const losses = recentMatches.filter((m) =>
+    typeof m.result === "string" ? m.result.toLowerCase().startsWith("loss") : false
+  );
+  if (kind === "best") {
+    if (wins.length) return wins.slice(0, 3);
+    return recentMatches.slice(0, 3);
+  }
+  if (kind === "worst") {
+    if (losses.length) return losses.slice(0, 3);
+    return recentMatches.slice(-3);
+  }
+  return [];
+}
+
+function buildStatsFallback(summary = {}) {
+  const best = [];
+  const worst = [];
+  if (summary.winPct != null) {
+    best.push({ label: "Win %", value: summary.winPct * 100, decimals: 1, suffix: "%" });
+  }
+  if (summary.avgWinners != null) {
+    best.push({ label: "Avg Winners", value: summary.avgWinners, decimals: 1 });
+  }
+  if (summary.totalMatches != null) {
+    best.push({ label: "Matches Played", value: summary.totalMatches, decimals: 0 });
+  }
+  if (summary.avgErrors != null) {
+    worst.push({ label: "Avg Errors", value: summary.avgErrors, decimals: 1 });
+  }
+  if (summary.losses != null) {
+    worst.push({ label: "Losses", value: summary.losses, decimals: 0 });
+  }
+  return { best, worst };
 }
 
 async function loadProfile() {
@@ -444,7 +581,18 @@ async function loadProfile() {
     renderBreakdown(breakdownContainers.time, data.breakdowns?.byTimeOfDay || []);
     renderFinance(data.finance || {});
     renderCalendar(data.calendarDates || []);
-    renderRecent(data.recentMatches || []);
+    const recent = data.recentMatches || [];
+    renderRecent(recent);
+
+    const bestGamesData = pickExtremeList(data, ["bestGames", "bestGame"]) || [];
+    const worstGamesData = pickExtremeList(data, ["worstGames", "worstGame"]) || [];
+    renderExtremeGames(bestGamesEl, bestGamesData.length ? bestGamesData : deriveFallbackGames(recent, "best"));
+    renderExtremeGames(worstGamesEl, worstGamesData.length ? worstGamesData : deriveFallbackGames(recent, "worst"));
+    const bestStatsData = pickExtremeList(data, ["bestStats", "bestStat"]);
+    const worstStatsData = pickExtremeList(data, ["worstStats", "worstStat"]);
+    const statsFallback = buildStatsFallback(data.summary || {});
+    renderExtremeStats(bestStatsEl, bestStatsData.length ? bestStatsData : statsFallback.best);
+    renderExtremeStats(worstStatsEl, worstStatsData.length ? worstStatsData : statsFallback.worst);
 
     setStatus(`Loaded profile with ${data.summary?.totalMatches ?? 0} matches.`);
   } catch (err) {
