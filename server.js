@@ -1121,7 +1121,7 @@ app.get('/api/db-matches', async (req, res) => {
         const { data: missingMetaRows, error: missingMetaErr } = await supabase
           .from('matches')
           .select(
-            'match_id, note, match_type_id, match_location_id, status, winner_team, finished_at, created_at',
+            'match_id, note, match_type_id, match_location_id, status, winner_team, finished_at, scheduled_at, created_at',
           )
           .or('match_type_id.is.null,match_location_id.is.null')
           .order('created_at', { ascending: false })
@@ -1176,7 +1176,7 @@ app.get('/api/db-matches', async (req, res) => {
       const { data: matchesMetaData, error: mErr } = await supabase
         .from('matches')
         .select(
-          'match_id, note, match_type_id, match_location_id, status, winner_team, finished_at',
+          'match_id, note, match_type_id, match_location_id, status, winner_team, finished_at, scheduled_at',
         )
         .in('match_id', allMatchIds);
 
@@ -1200,6 +1200,7 @@ app.get('/api/db-matches', async (req, res) => {
         status: m.status || null,
         winnerTeam: m.winner_team ?? null,
         finishedAt: m.finished_at || null,
+        scheduledAt: m.scheduled_at || null,
       });
     }
 
@@ -1261,6 +1262,7 @@ app.get('/api/db-matches', async (req, res) => {
         matchLocationLogoUrl: locationRow?.logoUrl || null,
         status: meta.status || null,
         winnerTeam: meta.winnerTeam ?? null,
+        scheduledAt: meta.scheduledAt || null,
       };
     });
 
@@ -1293,7 +1295,8 @@ app.get('/api/db-matches', async (req, res) => {
         matchLocationLogoUrl: locationRow?.logoUrl || null,
         status: meta.status || null,
         winnerTeam: meta.winnerTeam ?? null,
-        lastTimestamp: meta.finishedAt || row.created_at || null,
+        scheduledAt: meta.scheduledAt || null,
+        lastTimestamp: meta.finishedAt || meta.scheduledAt || row.created_at || null,
         lastSnapshot: {},
         score: '',
         setsString: '',

@@ -1,18 +1,19 @@
-import {
+﻿import {
   computeBreakStats,
   computeTimeStats,
   formatDuration,
   parseSetsArray,
   serverTeamFromServerField
 } from "./stats.js";
+import {
+  renderSetColumns as renderSetColumnsModule,
+  renderPointsAndServer as renderPointsAndServerModule,
+  updateNamesOnScoreboard as updateNamesOnScoreboardModule
+} from "./match/scoreboard.js";
+import { createMetaHandlers } from "./match/meta.js";
+import { createReplayControls } from "./match/replay.js";
 
 const PLAYER_COLORS = ["#5ab0ff", "#57d657", "#f5a623", "#ff6b6b"];
-const WINNER_COLOR = "#57d657";
-const ERROR_COLOR = "#ff6b6b";
-const TIMELINE_ARROW_COLOR = "#000000";
-const GAME_MARKER_COLOR = "rgba(255,255,255,0.35)";
-const SET_MARKER_COLOR = "#f7c948";
-const TIMELINE_POINT_RADIUS = 9;
 const METRIC_COLORS = ["#f7c948", "#5ab0ff", "#57d657", "#ff6b6b", "#a970ff", "#00d1b2", "#f5a623"];
 const METRIC_DEFS = [
   { key: "calories", label: "Calories", path: ["metrics", "calories"] },
@@ -40,7 +41,6 @@ const state = {
   snapshots: [],
   visibleSnapshots: [],
   impactChart: null,
-  timelineChart: null,
   metricCharts: {},
   currentNames: ["P1", "P2", "P3", "P4"],
   playerRefs: [
@@ -84,8 +84,14 @@ const dom = {
   team2Name: document.getElementById("team2Name"),
   team1Points: document.getElementById("team1Points"),
   team2Points: document.getElementById("team2Points"),
-  team1ServerDot: document.getElementById("team1ServerDot"),
-  team2ServerDot: document.getElementById("team2ServerDot"),
+  t1p1Name: document.getElementById("t1p1Name"),
+  t1p2Name: document.getElementById("t1p2Name"),
+  t2p1Name: document.getElementById("t2p1Name"),
+  t2p2Name: document.getElementById("t2p2Name"),
+  t1p1ServerDot: document.getElementById("t1p1ServerDot"),
+  t1p2ServerDot: document.getElementById("t1p2ServerDot"),
+  t2p1ServerDot: document.getElementById("t2p1ServerDot"),
+  t2p2ServerDot: document.getElementById("t2p2ServerDot"),
   t1p1Input: document.getElementById("t1p1"),
   t1p2Input: document.getElementById("t1p2"),
   t2p1Input: document.getElementById("t2p1"),
@@ -120,8 +126,6 @@ const dom = {
   matchCostInput: document.getElementById("matchCostInput"),
   noteInput: document.getElementById("noteInput"),
   saveMetaBtn: document.getElementById("saveMetaBtn"),
-  timelineChart: document.getElementById("timelineChart"),
-  timelineEmpty: document.getElementById("timelineEmpty"),
   gameHistoryBody: document.getElementById("gameHistoryBody"),
   metricsCharts: document.getElementById("metricsCharts"),
   metricsEmpty: document.getElementById("metricsEmpty"),
@@ -131,7 +135,19 @@ const dom = {
   teamMomentsList: document.getElementById("teamMomentsList")
 };
 
-let replayTimer = null;
+const playerNameEls = [
+  dom.t1p1Name,
+  dom.t1p2Name,
+  dom.t2p1Name,
+  dom.t2p2Name
+];
+
+const serverDots = [
+  dom.t1p1ServerDot,
+  dom.t1p2ServerDot,
+  dom.t2p1ServerDot,
+  dom.t2p2ServerDot
+];
 
 function escapeHtml(value) {
   if (typeof value !== "string") return "";
@@ -158,56 +174,6 @@ function stripHtmlTags(value) {
   return value.replace(/<[^>]*>/g, "");
 }
 
-function formatLocalDateTime(value) {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short"
-  });
-}
-
-function formatDatetimeLocalValue(value) {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (num) => String(num).padStart(2, "0");
-  const year = d.getFullYear();
-  const month = pad(d.getMonth() + 1);
-  const day = pad(d.getDate());
-  const hours = pad(d.getHours());
-  const minutes = pad(d.getMinutes());
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
-
-function normalizeMatchCost(value) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
-}
-
-function formatMatchCost(value) {
-  const num = normalizeMatchCost(value);
-  if (num === null) return "";
-  return `€${num.toFixed(2)}`;
-}
-
-function normalizeMatchLevel(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim().toUpperCase();
-  return trimmed || null;
-}
-
-function ensureSelectHasValue(selectEl, value, label) {
-  if (!selectEl || !value) return;
-  const exists = Array.from(selectEl.options).some((opt) => opt.value === value);
-  if (exists) return;
-  const opt = document.createElement("option");
-  opt.value = value;
-  opt.textContent = label || value;
-  selectEl.appendChild(opt);
-}
-
 function getPlayerRef(index) {
   return (
     state.playerRefs[index] || {
@@ -220,12 +186,24 @@ function getPlayerRef(index) {
 function renderPlayerName(index, options = {}) {
   const ref = getPlayerRef(index);
   const baseName = state.currentNames[index] || ref.name || `P${index + 1}`;
-  const label = options.uppercase ? baseName.toUpperCase() : baseName;
+  const labelBase =
+    window.innerWidth <= 520 ? abbreviateName(baseName) : baseName;
+  const label = options.uppercase ? labelBase.toUpperCase() : labelBase;
   const safeLabel = escapeHtml(label);
   if (ref.id) {
     return `<a class="player-link" href="/player/${ref.id}">${safeLabel}</a>`;
   }
   return safeLabel;
+}
+
+function abbreviateName(name) {
+  if (typeof name !== "string") return name;
+  const parts = name.trim().split(/\s+/);
+  if (parts.length <= 1) return name;
+  const first = parts[0];
+  const rest = parts.slice(1).join(" ");
+  const initial = first.charAt(0);
+  return `${initial}. ${rest}`;
 }
 
 function normalizePlayerRef(entry, fallbackName, index) {
@@ -258,6 +236,20 @@ const setCells = [
     t2: document.getElementById("set3T2")
   }
 ];
+
+const {
+  updateMatchMeta,
+  toggleMatchMetaForm,
+  handleSaveMatchMeta,
+  handleMetaSelectChange
+} = createMetaHandlers({ state, dom, setStatus, setError, clearError });
+
+const {
+  stopReplay,
+  applySliderValue,
+  startReplay,
+  syncSlider
+} = createReplayControls({ state, dom, buildFromVisible });
 
 document.addEventListener("DOMContentLoaded", () => {
   wireEventListeners();
@@ -381,382 +373,9 @@ function applyDbNames(playersFromDb) {
   if (dom.namesPanel) dom.namesPanel.style.display = "none";
 }
 
-function getMetaButtonLabel() {
-  const hasMeta =
-    Boolean(state.matchNote && state.matchNote.trim()) ||
-    Boolean(state.matchType) ||
-    Boolean(state.matchLocation) ||
-    Boolean(state.scheduledAt) ||
-    Boolean(state.matchLevel) ||
-    state.matchCost !== null;
-  return hasMeta ? "Edit match info" : "Add match info";
-}
-
-function updateMatchMeta(meta = {}) {
-  if (Object.prototype.hasOwnProperty.call(meta, "note")) {
-    state.matchNote = typeof meta.note === "string" ? meta.note : "";
-  }
-  if (Object.prototype.hasOwnProperty.call(meta, "matchType")) {
-    state.matchType = meta.matchType ? { ...meta.matchType } : null;
-  }
-  if (Object.prototype.hasOwnProperty.call(meta, "matchLocation")) {
-    state.matchLocation = meta.matchLocation ? { ...meta.matchLocation } : null;
-  }
-  if (Array.isArray(meta.matchTypeOptions)) {
-    state.matchTypeOptions = meta.matchTypeOptions.map((opt) => ({
-      id: opt.id,
-      name: opt.name,
-      iconUrl: opt.iconUrl || null
-    }));
-  }
-  if (Array.isArray(meta.matchLocationOptions)) {
-    state.matchLocationOptions = meta.matchLocationOptions.map((opt) => ({
-      id: opt.id,
-      name: opt.name,
-      logoUrl: opt.logoUrl || null
-    }));
-  }
-  if (Object.prototype.hasOwnProperty.call(meta, "status")) {
-    state.matchStatus = meta.status || null;
-  }
-  if (Object.prototype.hasOwnProperty.call(meta, "winnerTeam")) {
-    const winner = Number(meta.winnerTeam);
-    state.winnerTeam = Number.isFinite(winner) ? winner : null;
-  }
-  if (Object.prototype.hasOwnProperty.call(meta, "finishedAt")) {
-    state.finishedAt = meta.finishedAt || null;
-  }
-  if (Object.prototype.hasOwnProperty.call(meta, "scheduledAt")) {
-    state.scheduledAt = meta.scheduledAt || null;
-  }
-  if (Object.prototype.hasOwnProperty.call(meta, "matchLevel")) {
-    state.matchLevel = normalizeMatchLevel(meta.matchLevel);
-  }
-  if (Object.prototype.hasOwnProperty.call(meta, "matchCost")) {
-    const normalizedCost = normalizeMatchCost(meta.matchCost);
-    state.matchCost = normalizedCost;
-  }
-
-  state.isMatchFinished = state.matchStatus === "finished";
-
-  syncMatchMetaDisplay();
-  if (dom.matchMetaForm?.style.display === "block") {
-    syncMatchMetaForm();
-  }
-}
-
-function syncMatchMetaDisplay() {
-  if (dom.noteDisplay) {
-    dom.noteDisplay.textContent = state.matchNote || "-";
-  }
-  if (dom.matchTypeDisplay) {
-    dom.matchTypeDisplay.textContent = state.matchType?.name || "-";
-  }
-  if (dom.matchLocationDisplay) {
-    dom.matchLocationDisplay.textContent = state.matchLocation?.name || "-";
-  }
-  if (dom.scheduledAtDisplay) {
-    const formatted = formatLocalDateTime(state.scheduledAt);
-    dom.scheduledAtDisplay.textContent = formatted || "-";
-  }
-  if (dom.matchLevelDisplay) {
-    dom.matchLevelDisplay.textContent = state.matchLevel || "-";
-  }
-  if (dom.matchCostDisplay) {
-    const costLabel = formatMatchCost(state.matchCost);
-    dom.matchCostDisplay.textContent = costLabel || "-";
-  }
-
-  if (dom.matchTypeIcon) {
-    if (state.matchType?.iconUrl) {
-      dom.matchTypeIcon.src = state.matchType.iconUrl;
-      dom.matchTypeIcon.style.display = "inline-block";
-    } else {
-      dom.matchTypeIcon.removeAttribute("src");
-      dom.matchTypeIcon.style.display = "none";
-    }
-  }
-
-  if (dom.matchLocationLogo) {
-    if (state.matchLocation?.logoUrl) {
-      dom.matchLocationLogo.src = state.matchLocation.logoUrl;
-      dom.matchLocationLogo.style.display = "inline-block";
-    } else {
-      dom.matchLocationLogo.removeAttribute("src");
-      dom.matchLocationLogo.style.display = "none";
-    }
-  }
-
-  if (dom.editMetaBtn && dom.matchMetaForm?.style.display !== "block") {
-    dom.editMetaBtn.textContent = getMetaButtonLabel();
-  }
-}
-
-function populateMetaSelect(selectEl, options, currentId, emptyLabel) {
-  if (!selectEl) return;
-  selectEl.innerHTML = "";
-  const defaultOpt = document.createElement("option");
-  defaultOpt.value = "";
-  defaultOpt.textContent = emptyLabel;
-  selectEl.appendChild(defaultOpt);
-
-  options.forEach((opt) => {
-    const optionEl = document.createElement("option");
-    optionEl.value = String(opt.id);
-    optionEl.textContent = opt.name;
-    selectEl.appendChild(optionEl);
-  });
-
-  const newOpt = document.createElement("option");
-  newOpt.value = "__new__";
-  newOpt.textContent = "Add new...";
-  selectEl.appendChild(newOpt);
-
-  if (currentId) {
-    selectEl.value = String(currentId);
-  } else {
-    selectEl.value = "";
-  }
-}
-
-function handleMetaSelectChange(kind) {
-  const select = kind === "type" ? dom.matchTypeSelect : dom.matchLocationSelect;
-  const input = kind === "type" ? dom.matchTypeNewInput : dom.matchLocationNewInput;
-  if (!select || !input) return;
-  const isNew = select.value === "__new__";
-  input.style.display = isNew ? "block" : "none";
-  if (!isNew) input.value = "";
-  if (isNew) {
-    input.focus();
-  }
-}
-
-function syncMatchMetaForm() {
-  if (dom.matchTypeSelect) {
-    populateMetaSelect(
-      dom.matchTypeSelect,
-      state.matchTypeOptions,
-      state.matchType?.id || null,
-      "No match type"
-    );
-  }
-  if (dom.matchLocationSelect) {
-    populateMetaSelect(
-      dom.matchLocationSelect,
-      state.matchLocationOptions,
-      state.matchLocation?.id || null,
-      "No location"
-    );
-  }
-  if (dom.scheduledAtInput) {
-    dom.scheduledAtInput.value = formatDatetimeLocalValue(state.scheduledAt);
-  }
-  if (dom.matchLevelSelect) {
-    if (state.matchLevel) {
-      ensureSelectHasValue(dom.matchLevelSelect, state.matchLevel, state.matchLevel);
-    }
-    dom.matchLevelSelect.value = state.matchLevel || "";
-  }
-  if (dom.matchCostInput) {
-    dom.matchCostInput.value =
-      state.matchCost === null || state.matchCost === undefined ? "" : String(state.matchCost);
-  }
-  if (dom.noteInput) {
-    dom.noteInput.value = state.matchNote || "";
-  }
-  handleMetaSelectChange("type");
-  handleMetaSelectChange("location");
-}
-
-function toggleMatchMetaForm(force) {
-  if (!dom.matchMetaForm) return;
-  const isOpen = dom.matchMetaForm.style.display === "block";
-  const show = typeof force === "boolean" ? force : !isOpen;
-  dom.matchMetaForm.style.display = show ? "block" : "none";
-  if (dom.editMetaBtn) {
-    dom.editMetaBtn.textContent = show ? "Close match info editor" : getMetaButtonLabel();
-  }
-  if (show) {
-    syncMatchMetaForm();
-  } else {
-    if (dom.matchTypeNewInput) dom.matchTypeNewInput.value = "";
-    if (dom.matchLocationNewInput) dom.matchLocationNewInput.value = "";
-  }
-}
-
-async function handleSaveMatchMeta() {
-  if (!state.currentMatchId) return;
-  clearError();
-
-  const payload = {
-    note: dom.noteInput?.value ?? ""
-  };
-
-  if (dom.matchTypeSelect) {
-    const selection = dom.matchTypeSelect.value;
-    if (selection === "__new__") {
-      const newName = (dom.matchTypeNewInput?.value || "").trim();
-      if (!newName) {
-        setError("Enter a match type name.");
-        return;
-      }
-      payload.matchTypeName = newName;
-      payload.matchTypeId = null;
-    } else if (selection === "") {
-      payload.matchTypeId = null;
-    } else {
-      const parsed = Number(selection);
-      if (!Number.isFinite(parsed)) {
-        setError("Invalid match type selected.");
-        return;
-      }
-      payload.matchTypeId = parsed;
-    }
-  }
-
-  if (dom.matchLocationSelect) {
-    const selection = dom.matchLocationSelect.value;
-    if (selection === "__new__") {
-      const newName = (dom.matchLocationNewInput?.value || "").trim();
-      if (!newName) {
-        setError("Enter a location name.");
-        return;
-      }
-      payload.matchLocationName = newName;
-      payload.matchLocationId = null;
-    } else if (selection === "") {
-      payload.matchLocationId = null;
-    } else {
-      const parsed = Number(selection);
-      if (!Number.isFinite(parsed)) {
-        setError("Invalid location selected.");
-        return;
-      }
-      payload.matchLocationId = parsed;
-    }
-  }
-
-  if (dom.scheduledAtInput) {
-    const raw = (dom.scheduledAtInput.value || "").trim();
-    if (raw) {
-      const parsedDate = new Date(raw);
-      if (Number.isNaN(parsedDate.getTime())) {
-        setError("Enter a valid scheduled date and time.");
-        return;
-      }
-      payload.scheduledAt = parsedDate.toISOString();
-    } else {
-      payload.scheduledAt = null;
-    }
-  }
-
-  if (dom.matchLevelSelect) {
-    const levelValue = dom.matchLevelSelect.value;
-    payload.matchLevel = levelValue ? normalizeMatchLevel(levelValue) : null;
-  }
-
-  if (dom.matchCostInput) {
-    const rawCost = (dom.matchCostInput.value || "").trim();
-    if (rawCost === "") {
-      payload.matchCost = null;
-    } else {
-      const parsedCost = Number(rawCost);
-      if (!Number.isFinite(parsedCost)) {
-        setError("Enter a valid match cost.");
-        return;
-      }
-      payload.matchCost = Math.round(parsedCost * 100) / 100;
-    }
-  }
-
-  try {
-    const res = await fetch(`/api/match/${state.currentMatchId}/note`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.error) {
-      throw new Error(data.error || `HTTP ${res.status}`);
-    }
-
-    updateMatchMeta({
-      note: data.note ?? payload.note,
-      matchType: data.matchType ?? null,
-      matchLocation: data.matchLocation ?? null,
-      matchTypeOptions: data.matchTypeOptions || state.matchTypeOptions,
-      matchLocationOptions: data.matchLocationOptions || state.matchLocationOptions,
-      status: data.status ?? state.matchStatus,
-      winnerTeam: data.winnerTeam ?? state.winnerTeam,
-      finishedAt: data.finishedAt ?? state.finishedAt,
-      scheduledAt: data.scheduledAt ?? payload.scheduledAt ?? state.scheduledAt,
-      matchLevel: data.matchLevel ?? payload.matchLevel ?? state.matchLevel,
-      matchCost: data.matchCost ?? payload.matchCost ?? state.matchCost
-    });
-    toggleMatchMetaForm(false);
-    setStatus("Match info saved.");
-  } catch (err) {
-    console.error("Failed to save match info:", err);
-    setError(`Failed to save match info: ${err.message}`);
-  }
-}
-
 function showMainView() {
   if (dom.mainView) dom.mainView.style.display = "block";
   if (dom.inputPanel) dom.inputPanel.style.display = "none";
-}
-
-function stopReplay() {
-  if (replayTimer) {
-    clearInterval(replayTimer);
-    replayTimer = null;
-  }
-}
-
-function applySliderValue(rawValue) {
-  if (!dom.timeSlider) return;
-  const idx = Number(rawValue ?? dom.timeSlider.value) - 1;
-  const max = state.snapshots.length;
-  const safeIdx = Math.min(Math.max(idx, 0), Math.max(max - 1, 0));
-  dom.timeSlider.value = String(safeIdx + 1);
-  state.visibleSnapshots = state.snapshots.slice(0, safeIdx + 1);
-  if (dom.timeLabel) {
-    dom.timeLabel.textContent = `Point ${safeIdx + 1} / ${max}`;
-  }
-  buildFromVisible();
-}
-
-function startReplay() {
-  if (!dom.timeSlider || state.snapshots.length <= 1) return;
-  stopReplay();
-  applySliderValue(1);
-  let current = 1;
-  const max = state.snapshots.length;
-  replayTimer = setInterval(() => {
-    current += 1;
-    if (current > max) {
-      stopReplay();
-      return;
-    }
-    applySliderValue(current);
-  }, 1000);
-}
-
-function syncSlider() {
-  if (!dom.timeSlider || !dom.sliderRow) return;
-
-  if (state.snapshots.length > 1) {
-    dom.sliderRow.style.display = "flex";
-    dom.timeSlider.min = "1";
-    dom.timeSlider.max = String(state.snapshots.length);
-    dom.timeSlider.value = String(state.snapshots.length);
-    if (dom.timeLabel) {
-      dom.timeLabel.textContent = `Point ${state.snapshots.length} / ${state.snapshots.length}`;
-    }
-  } else {
-    dom.sliderRow.style.display = "none";
-    stopReplay();
-  }
 }
 
 function handleManualLoad() {
@@ -901,7 +520,6 @@ function buildFromVisible() {
   updateTimeStats();
   updateImpactChart();
   updateMetricsCharts();
-  updateTimelineChart();
   updateGameHistory();
   renderKeyMoments();
 }
@@ -912,69 +530,15 @@ function renderSetColumns(snap) {
     snap.sets && typeof snap.sets === "object" ? snap.sets : null,
     snap.games
   );
-
-  for (let i = 0; i < setCells.length; i++) {
-    const column = setCells[i];
-    const setScore = setsArr[i];
-    const top = setScore && setScore.team1 != null ? setScore.team1 : "-";
-    const bottom = setScore && setScore.team2 != null ? setScore.team2 : "-";
-    column.t1.textContent = top;
-    column.t2.textContent = bottom;
-    if (column.root) {
-      const hideColumn =
-        state.isMatchFinished && shouldHideSetScore(top, bottom);
-      column.root.style.display = hideColumn ? "none" : "";
-    }
-  }
-}
-
-function shouldHideSetScore(top, bottom) {
-  const normalize = (value) => {
-    if (value == null) return null;
-    if (value === "-" || value === "—") return null;
-    const num = Number(value);
-    if (!Number.isNaN(num)) return num;
-    return value;
-  };
-
-  const topNorm = normalize(top);
-  const bottomNorm = normalize(bottom);
-  const bothMissing = topNorm == null && bottomNorm == null;
-  const bothDash = (top === "-" || top == null) && (bottom === "-" || bottom == null);
-  const bothZero =
-    typeof topNorm === "number" &&
-    typeof bottomNorm === "number" &&
-    topNorm === 0 &&
-    bottomNorm === 0;
-
-  return bothMissing || bothDash || bothZero;
+  renderSetColumnsModule(setsArr, state.isMatchFinished, setCells);
 }
 
 function renderPointsAndServer(snap) {
-  const pts = snap.points || {};
-  if (dom.team1Points) dom.team1Points.textContent = pts.team1 ?? "0";
-  if (dom.team2Points) dom.team2Points.textContent = pts.team2 ?? "0";
-
-  const serverTeam = serverTeamFromServerField(snap.server);
-  if (dom.team1ServerDot) {
-    dom.team1ServerDot.style.display = serverTeam === 1 ? "inline-block" : "none";
-  }
-  if (dom.team2ServerDot) {
-    dom.team2ServerDot.style.display = serverTeam === 2 ? "inline-block" : "none";
-  }
+  renderPointsAndServerModule(snap, dom, serverDots);
 }
 
 function updateNamesOnScoreboard() {
-  const team1 = `${renderPlayerName(0, { uppercase: true })} / ${renderPlayerName(
-    1,
-    { uppercase: true }
-  )}`;
-  const team2 = `${renderPlayerName(2, { uppercase: true })} / ${renderPlayerName(
-    3,
-    { uppercase: true }
-  )}`;
-  if (dom.team1Name) dom.team1Name.innerHTML = team1;
-  if (dom.team2Name) dom.team2Name.innerHTML = team2;
+  updateNamesOnScoreboardModule(renderPlayerName, playerNameEls);
 }
 
 async function fetchNeighbors(matchId) {
@@ -998,7 +562,7 @@ function updateMatchNavigation() {
   if (dom.prevMatchLink) {
     if (previous?.matchId) {
       dom.prevMatchLink.href = `/match/${previous.matchId}`;
-      dom.prevMatchLink.textContent = `← Match #${previous.matchId}`;
+      dom.prevMatchLink.textContent = `\u2190 Match #${previous.matchId}`;
       dom.prevMatchLink.style.display = "inline-block";
       dom.prevMatchLink.classList.remove("nav-link--disabled");
     } else {
@@ -1010,7 +574,7 @@ function updateMatchNavigation() {
   if (dom.nextMatchLink) {
     if (next?.matchId) {
       dom.nextMatchLink.href = `/match/${next.matchId}`;
-      dom.nextMatchLink.textContent = `Match #${next.matchId} →`;
+      dom.nextMatchLink.textContent = `Match #${next.matchId} \u2192`;
       dom.nextMatchLink.style.display = "inline-block";
       dom.nextMatchLink.classList.remove("nav-link--disabled");
     } else {
@@ -1351,29 +915,6 @@ function updateMetricsCharts() {
   });
 }
 
-function setTimelineEmpty(message) {
-  if (dom.timelineEmpty) {
-    dom.timelineEmpty.textContent = message;
-    dom.timelineEmpty.style.display = "flex";
-  }
-}
-
-function hideTimelineEmpty() {
-  if (dom.timelineEmpty) {
-    dom.timelineEmpty.style.display = "none";
-  }
-}
-
-function destroyTimelineChart(message) {
-  if (state.timelineChart) {
-    state.timelineChart.destroy();
-    state.timelineChart = null;
-  }
-  if (message) {
-    setTimelineEmpty(message);
-  }
-}
-
 function computeRelativePointTimes(snaps) {
   const times = [];
   let base = null;
@@ -1480,14 +1021,6 @@ function computeKeyMoments(snapshots) {
   const playerErrorStreak = [0, 0, 0, 0];
   const playerBestErrorStreak = [0, 0, 0, 0];
   const playerPointWinStreak = [0, 0, 0, 0];
-  const playerBpConquered = [0, 0, 0, 0];
-  const playerBpWasted = [0, 0, 0, 0];
-  const playerBpOffered = [0, 0, 0, 0];
-  const playerBpSaved = [0, 0, 0, 0];
-  const playerBpConqueredIdx = [null, null, null, null];
-  const playerBpWastedIdx = [null, null, null, null];
-  const playerBpOfferedIdx = [null, null, null, null];
-  const playerBpSavedIdx = [null, null, null, null];
   const playerBestWinnerStreakIdx = [null, null, null, null];
   const playerBestErrorStreakIdx = [null, null, null, null];
   const playerErrorEvents = [[], [], [], []]; // { time, index }
@@ -1510,12 +1043,6 @@ function computeKeyMoments(snapshots) {
   const teamBestErrorStreak = { 1: 0, 2: 0 };
   const teamPointStreak = { 1: 0, 2: 0 };
   const teamBestPointStreak = { 1: 0, 2: 0 };
-  const teamBpConquered = { 1: 0, 2: 0 };
-  const teamBpWasted = { 1: 0, 2: 0 };
-  const teamBpOffered = { 1: 0, 2: 0 };
-  const teamBpSaved = { 1: 0, 2: 0 };
-  const teamBpChances = { 1: 0, 2: 0 };
-  const teamBpFaced = { 1: 0, 2: 0 };
   const teamBestWinnerStreakIdx = { 1: null, 2: null };
   const teamBestErrorStreakIdx = { 1: null, 2: null };
   const teamBestPointStreakIdx = { 1: null, 2: null };
@@ -1616,35 +1143,6 @@ function computeKeyMoments(snapshots) {
 
     const gameEvents = eventsByIndex.get(i) || [];
     const finalEvent = gameEvents[gameEvents.length - 1] || null;
-
-    const isBp = hasBreakPoint(points, serverTeam);
-    const returnTeam = serverTeam === 1 ? 2 : serverTeam === 2 ? 1 : null;
-    if (isBp && returnTeam && finalEvent) {
-      teamBpChances[returnTeam] += 1;
-      teamBpFaced[serverTeam] += 1;
-
-      const isReturner = finalEvent.team === returnTeam;
-      const isServer = finalEvent.team === serverTeam;
-      const pIdx = finalEvent.playerIndex;
-
-      if (isReturner && finalEvent.eventType === "winner") {
-        teamBpConquered[returnTeam] += 1;
-        playerBpConquered[pIdx] += 1;
-        if (playerBpConqueredIdx[pIdx] == null) playerBpConqueredIdx[pIdx] = i;
-      } else if (isReturner && finalEvent.eventType === "error") {
-        teamBpWasted[returnTeam] += 1;
-        playerBpWasted[pIdx] += 1;
-        if (playerBpWastedIdx[pIdx] == null) playerBpWastedIdx[pIdx] = i;
-      } else if (isServer && finalEvent.eventType === "error") {
-        teamBpOffered[serverTeam] += 1;
-        playerBpOffered[pIdx] += 1;
-        if (playerBpOfferedIdx[pIdx] == null) playerBpOfferedIdx[pIdx] = i;
-      } else if (isServer && finalEvent.eventType === "winner") {
-        teamBpSaved[serverTeam] += 1;
-        playerBpSaved[pIdx] += 1;
-        if (playerBpSavedIdx[pIdx] == null) playerBpSavedIdx[pIdx] = i;
-      }
-    }
 
     const creditWinToPlayers = (targetTeam, arr) => {
       if (finalEvent && finalEvent.team === targetTeam && finalEvent.eventType === "winner") {
@@ -1750,16 +1248,12 @@ function computeKeyMoments(snapshots) {
     2: errorGapFromEvents(teamErrorEvents[2])
   };
 
-  // Align break/breakpoint counts with shared break stats to avoid mismatches
+  // Align break counts with shared break stats to avoid mismatches
   const breakStats = computeBreakStats(snapshots) || { team1: { breaks: 0, bps: 0 }, team2: { breaks: 0, bps: 0 } };
   teamBreakWon[1] = breakStats.team1.breaks ?? teamBreakWon[1];
   teamBreakWon[2] = breakStats.team2.breaks ?? teamBreakWon[2];
   teamBreakLost[1] = breakStats.team2.breaks ?? teamBreakLost[1]; // team1 lost serve when team2 broke
   teamBreakLost[2] = breakStats.team1.breaks ?? teamBreakLost[2];
-  teamBpChances[1] = breakStats.team1.bps ?? teamBpChances[1];
-  teamBpChances[2] = breakStats.team2.bps ?? teamBpChances[2];
-  teamBpFaced[1] = breakStats.team2.bps ?? teamBpFaced[1];
-  teamBpFaced[2] = breakStats.team1.bps ?? teamBpFaced[2];
 
   // If a team has zero breaks, zero out player break wins for that team to prevent phantom entries
   if (!teamBreakWon[1]) {
@@ -1786,41 +1280,6 @@ function computeKeyMoments(snapshots) {
     playerBreakLost[3] = 0;
     playerBreakLostIdx[2] = null;
     playerBreakLostIdx[3] = null;
-  }
-
-  // If a team had zero BP chances, zero out their BP conquered/wasted
-  if (!teamBpChances[1]) {
-    playerBpConquered[0] = 0;
-    playerBpConquered[1] = 0;
-    playerBpWasted[0] = 0;
-    playerBpWasted[1] = 0;
-    playerBpConqueredIdx[0] = playerBpConqueredIdx[1] = null;
-    playerBpWastedIdx[0] = playerBpWastedIdx[1] = null;
-  }
-  if (!teamBpChances[2]) {
-    playerBpConquered[2] = 0;
-    playerBpConquered[3] = 0;
-    playerBpWasted[2] = 0;
-    playerBpWasted[3] = 0;
-    playerBpConqueredIdx[2] = playerBpConqueredIdx[3] = null;
-    playerBpWastedIdx[2] = playerBpWastedIdx[3] = null;
-  }
-  // If a team faced zero BPs, zero out their offered/saved counts
-  if (!teamBpFaced[1]) {
-    playerBpOffered[0] = 0;
-    playerBpOffered[1] = 0;
-    playerBpSaved[0] = 0;
-    playerBpSaved[1] = 0;
-    playerBpOfferedIdx[0] = playerBpOfferedIdx[1] = null;
-    playerBpSavedIdx[0] = playerBpSavedIdx[1] = null;
-  }
-  if (!teamBpFaced[2]) {
-    playerBpOffered[2] = 0;
-    playerBpOffered[3] = 0;
-    playerBpSaved[2] = 0;
-    playerBpSaved[3] = 0;
-    playerBpOfferedIdx[2] = playerBpOfferedIdx[3] = null;
-    playerBpSavedIdx[2] = playerBpSavedIdx[3] = null;
   }
 
   const playerMoments = [];
@@ -1936,99 +1395,6 @@ function computeKeyMoments(snapshots) {
   };
 }
 
-function collectGameSetMarkers(snaps, times) {
-  const markers = { games: [], sets: [] };
-  let prevGames = null;
-  let prevSlices = null;
-
-  for (let i = 0; i < snaps.length; i++) {
-    const { totalGames, setSlices } = countGamesAndSets(snaps[i]);
-    const timeSec = times[i];
-
-    if (prevGames != null && totalGames > prevGames) {
-      for (let g = prevGames + 1; g <= totalGames; g++) {
-        markers.games.push({ timeSec, label: `Game ${g}` });
-      }
-    }
-
-    if (prevSlices != null && setSlices > prevSlices) {
-      const completed = setSlices - 1;
-      if (completed > 0) {
-        markers.sets.push({ timeSec, label: `Set ${completed}` });
-      }
-    }
-
-    prevGames = totalGames;
-    prevSlices = setSlices;
-  }
-
-  return markers;
-}
-
-const timelineArrowPlugin = {
-  id: "timelineArrowPlugin",
-  afterDatasetsDraw(chart) {
-    const ctx = chart.ctx;
-    chart.data.datasets.forEach((dataset, datasetIndex) => {
-      const meta = chart.getDatasetMeta(datasetIndex);
-      meta.data.forEach((element, index) => {
-        const raw = dataset.data[index];
-        if (!raw) return;
-        const arrowColor = TIMELINE_ARROW_COLOR;
-        const size = 8;
-        const center = element.getCenterPoint();
-        ctx.save();
-        ctx.fillStyle = arrowColor;
-        ctx.beginPath();
-        if (raw.eventType === "winner") {
-          ctx.moveTo(center.x, center.y - size / 2);
-          ctx.lineTo(center.x - size / 2, center.y + size / 2);
-          ctx.lineTo(center.x + size / 2, center.y + size / 2);
-        } else {
-          ctx.moveTo(center.x, center.y + size / 2);
-          ctx.lineTo(center.x - size / 2, center.y - size / 2);
-          ctx.lineTo(center.x + size / 2, center.y - size / 2);
-        }
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-      });
-    });
-  }
-};
-
-const timelineMarkerPlugin = {
-  id: "timelineMarkerPlugin",
-  afterDraw(chart) {
-    const markerOpts = chart.options?.plugins?.timelineMarkers;
-    if (!markerOpts) return;
-    const xScale = chart.scales.x;
-    const ctx = chart.ctx;
-    const { top, bottom } = chart.chartArea;
-    const drawMarker = (timeSec, color, label) => {
-      const xPos = xScale.getPixelForValue(timeSec);
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(xPos, top);
-      ctx.lineTo(xPos, bottom);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = color;
-      ctx.font = "10px system-ui, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      ctx.fillText(label, xPos, top + 4);
-      ctx.restore();
-    };
-
-    markerOpts.games.forEach((m) => drawMarker(m.timeSec, GAME_MARKER_COLOR, m.label));
-    markerOpts.sets.forEach((m) => drawMarker(m.timeSec, SET_MARKER_COLOR, m.label));
-  }
-};
-
 function formatPointScoreLabel(points = {}) {
   const p1 = normalizePointStrLocal(points.team1) || "-";
   const p2 = normalizePointStrLocal(points.team2) || "-";
@@ -2063,22 +1429,6 @@ function hasGamePoint(points = {}, targetTeam) {
   if (pTeam >= 50) return true; // Advantage
   if (pTeam === 40 && pOpp < 40) return true; // 40-0/15/30
   if (pTeam === 40 && pOpp === 40) return true; // Golden point
-  return false;
-}
-
-function hasBreakPoint(points = {}, serverTeam) {
-  if (serverTeam !== 1 && serverTeam !== 2) return false;
-  const serverPts = pointLabelToValue(serverTeam === 1 ? points.team1 : points.team2);
-  const returnPts = pointLabelToValue(serverTeam === 1 ? points.team2 : points.team1);
-  if (returnPts < 40) return false;
-  // If returner is not ahead and not at deuce, no breakpoint
-  if (returnPts < serverPts && !(returnPts === 40 && serverPts === 40)) return false;
-  // Returner at 40 and server below 40
-  if (returnPts === 40 && serverPts < 40) return true;
-  // Golden point (40-40)
-  if (returnPts === 40 && serverPts === 40) return true;
-  // Returner advantage only counts if server has reached 40 (true advantage/deuce phase)
-  if (returnPts >= 50 && serverPts >= 40) return true;
   return false;
 }
 
@@ -2126,7 +1476,7 @@ function updateGameHistory() {
     const curr = state.visibleSnapshots[i];
 
     const durationSec = Math.max(0, (times[i] ?? 0) - (times[i - 1] ?? 0));
-    const durationLabel = durationSec > 0 ? formatDuration(durationSec) : "—";
+    const durationLabel = durationSec > 0 ? formatDuration(durationSec) : "â€”";
     const scoreLabel = formatPointScoreLabel(curr.points || {});
     const currSets = extractSetArrayFromSnapshot(curr);
     const lastSet = currSets[currSets.length - 1] || {};
@@ -2188,11 +1538,11 @@ function updateGameHistory() {
           .map((note) => {
             if (note.type === "key") {
               const tip = escapeHtml(note.tooltip || note.label || "Key moment");
-              return `<span class="key-note" title="${tip}">🔑</span>`;
+              return escapeHtml(tip);
             }
             if (note.type === "key-list") {
               const tip = escapeHtml(note.tooltip || note.label || "Key moments");
-              return `<span class="key-note" title="${tip}">🔑</span>`;
+              return escapeHtml(tip);
             }
             return escapeHtml(note.label || "");
           })
@@ -2215,139 +1565,6 @@ function updateGameHistory() {
     : `<tr><td colspan="4" class="stat-number">No points yet.</td></tr>`;
 }
 
-function updateTimelineChart() {
-  const canvas = dom.timelineChart;
-  if (!canvas) return;
-
-  if (state.visibleSnapshots.length < 2) {
-    destroyTimelineChart("Timeline appears once two points exist.");
-    return;
-  }
-
-  const times = computeRelativePointTimes(state.visibleSnapshots);
-  const events = [];
-  for (let i = 1; i < state.visibleSnapshots.length; i++) {
-    const prev = state.visibleSnapshots[i - 1];
-    const curr = state.visibleSnapshots[i];
-    const prevPlayers = Array.isArray(prev.players) ? prev.players : [];
-    const currPlayers = Array.isArray(curr.players) ? curr.players : [];
-
-    for (let pIdx = 0; pIdx < 4; pIdx++) {
-      const prevStats = prevPlayers[pIdx] || { winners: 0, errors: 0 };
-      const currStats = currPlayers[pIdx] || { winners: 0, errors: 0 };
-      const wDiff = Number(currStats.winners || 0) - Number(prevStats.winners || 0);
-      const eDiff = Number(currStats.errors || 0) - Number(prevStats.errors || 0);
-
-      if (wDiff > 0) {
-        events.push({
-          timeSec: times[i],
-          team: pIdx < 2 ? 1 : 2,
-          playerIndex: pIdx,
-          eventType: "winner"
-        });
-      }
-      if (eDiff > 0) {
-        events.push({
-          timeSec: times[i],
-          team: pIdx < 2 ? 1 : 2,
-          playerIndex: pIdx,
-          eventType: "error"
-        });
-      }
-    }
-  }
-
-  if (!events.length) {
-    destroyTimelineChart("No winners or errors recorded yet.");
-    return;
-  }
-
-  hideTimelineEmpty();
-  const markers = collectGameSetMarkers(state.visibleSnapshots, times);
-
-  const datasets = [];
-  for (let pIdx = 0; pIdx < 4; pIdx++) {
-    const playerColor = PLAYER_COLORS[pIdx % PLAYER_COLORS.length];
-    const playerEvents = events
-      .filter((ev) => ev.playerIndex === pIdx)
-      .map((ev) => ({
-        x: ev.timeSec,
-        y: ev.team,
-        eventType: ev.eventType
-      }));
-
-    datasets.push({
-      label: (state.currentNames[pIdx] || `P${pIdx + 1}`).toUpperCase(),
-      data: playerEvents,
-      pointRadius: TIMELINE_POINT_RADIUS,
-      pointBackgroundColor: playerColor,
-      pointBorderColor: playerColor,
-      pointBorderWidth: 0,
-      showLine: false
-    });
-  }
-
-  const config = {
-    type: "scatter",
-    data: { datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          labels: { color: "#f5f5f5" }
-        },
-        tooltip: {
-          callbacks: {
-            title: (items) =>
-              items.length ? `Elapsed: ${formatDuration(items[0].raw.x)}` : "",
-            label: (item) =>
-              `${item.dataset.label} – ${
-                item.raw.eventType === "winner" ? "Winner" : "Error"
-              }`
-          }
-        },
-        timelineMarkers: markers
-      },
-      scales: {
-        x: {
-          title: { display: true, text: "Elapsed Time", color: "#f5f5f5" },
-          ticks: {
-            color: "#f5f5f5",
-            callback: (value) => formatDuration(value)
-          },
-          grid: { color: "rgba(255,255,255,0.1)" }
-        },
-        y: {
-          type: "linear",
-          suggestedMin: 0.5,
-          suggestedMax: 2.5,
-          ticks: {
-            stepSize: 1,
-            color: "#f5f5f5",
-            callback: (value) => {
-              if (value === 1) return "Team 1";
-              if (value === 2) return "Team 2";
-              return "";
-            }
-          },
-          grid: { display: false }
-        }
-      }
-    },
-    plugins: [timelineArrowPlugin, timelineMarkerPlugin]
-  };
-
-  const ctx = canvas.getContext("2d");
-  if (state.timelineChart) {
-    state.timelineChart.data = config.data;
-    state.timelineChart.options = config.options;
-    state.timelineChart.update();
-  } else {
-    state.timelineChart = new Chart(ctx, config);
-  }
-}
-
 function setStatus(message) {
   if (dom.status) dom.status.textContent = message;
 }
@@ -2359,4 +1576,5 @@ function setError(message) {
 function clearError() {
   setError("");
 }
+
 

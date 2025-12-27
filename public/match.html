@@ -12,12 +12,12 @@
 
 <body>
   <div class="container">
-    <h1>Padel Payload Viewer</h1>
+    <h1>Match Details</h1>
     <div class="page-nav">
-      <a class="nav-link" href="/">â† Match list</a>
+      <a class="nav-link" href="/">&larr; Match list</a>
       <div class="nav-spacer"></div>
-      <a id="prevMatchLink" class="nav-link nav-link--muted" href="#" style="display:none;">â† Previous match</a>
-      <a id="nextMatchLink" class="nav-link nav-link--muted" href="#" style="display:none;">Next match â†’</a>
+      <a id="prevMatchLink" class="nav-link nav-link--muted" href="#" style="display:none;">&larr; Previous match</a>
+      <a id="nextMatchLink" class="nav-link nav-link--muted" href="#" style="display:none;">Next match &rarr;</a>
     </div>
 
     <div id="status" class="status"></div>
@@ -32,16 +32,11 @@
       <textarea id="payloadInput"></textarea>
       <button id="loadBtn">Load</button>
     </div>
-
+<br>
     <!-- MAIN VIEW -->
     <div id="mainView" style="display:none;">
 
-      <!-- SLIDER -->
-      <div id="sliderRow" class="slider-row" style="display:none;">
-        <button id="replayBtn" type="button">Replay</button>
-        <span id="timeLabel">Point 1 / 1</span>
-        <input type="range" id="timeSlider" min="1" max="1" value="1">
-      </div>
+
 
       <!-- SCOREBOARD -->
       <div class="scoreboard-wrapper">
@@ -50,12 +45,30 @@
 
           <div class="sb-teams">
             <div class="sb-row">
-              <div class="team-name" id="team1Name">TEAM 1</div>
-              <span class="server-dot" id="team1ServerDot" style="display:none;"></span>
+              <div class="team-name" id="team1Name">
+                <span class="player-chip" data-player-index="0">
+                  <span class="server-dot" id="t1p1ServerDot" style="display:none;"></span>
+                  <span class="player-name" id="t1p1Name">TEAM 1 P1</span>
+                </span>
+                <span class="player-sep">/</span>
+                <span class="player-chip" data-player-index="1">
+                  <span class="server-dot" id="t1p2ServerDot" style="display:none;"></span>
+                  <span class="player-name" id="t1p2Name">TEAM 1 P2</span>
+                </span>
+              </div>
             </div>
             <div class="sb-row">
-              <div class="team-name" id="team2Name">TEAM 2</div>
-              <span class="server-dot" id="team2ServerDot" style="display:none;"></span>
+              <div class="team-name" id="team2Name">
+                <span class="player-chip" data-player-index="2">
+                  <span class="server-dot" id="t2p1ServerDot" style="display:none;"></span>
+                  <span class="player-name" id="t2p1Name">TEAM 2 P1</span>
+                </span>
+                <span class="player-sep">/</span>
+                <span class="player-chip" data-player-index="3">
+                  <span class="server-dot" id="t2p2ServerDot" style="display:none;"></span>
+                  <span class="player-name" id="t2p2Name">TEAM 2 P2</span>
+                </span>
+              </div>
             </div>
           </div>
 
@@ -79,6 +92,15 @@
             <div class="sb-point-bottom" id="team2Points">0</div>
           </div>
         </div>
+      </div>
+
+      <br>
+
+      <!-- SLIDER -->
+      <div id="sliderRow" class="slider-row" style="display:none;">
+        <button id="replayBtn" type="button">Replay</button>
+        <span id="timeLabel">Point 1 / 1</span>
+        <input type="range" id="timeSlider" min="1" max="1" value="1">
       </div>
 
       <div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center;">
@@ -126,31 +148,31 @@
             <span class="match-meta-label">Type</span>
             <div class="match-meta-value with-media">
               <img id="matchTypeIcon" class="match-meta-media" alt="" />
-              <span id="matchTypeDisplay">ƒ?"</span>
+              <span id="matchTypeDisplay">-</span>
             </div>
           </div>
           <div class="match-meta-row">
             <span class="match-meta-label">Location</span>
             <div class="match-meta-value with-media">
               <img id="matchLocationLogo" class="match-meta-media" alt="" />
-              <span id="matchLocationDisplay">ƒ?"</span>
+              <span id="matchLocationDisplay">-</span>
             </div>
           </div>
           <div class="match-meta-row">
             <span class="match-meta-label">Scheduled</span>
-            <div class="match-meta-value" id="scheduledAtDisplay">ƒ?"</div>
+            <div class="match-meta-value" id="scheduledAtDisplay">-</div>
           </div>
           <div class="match-meta-row">
             <span class="match-meta-label">Level</span>
-            <div class="match-meta-value" id="matchLevelDisplay">ƒ?"</div>
+            <div class="match-meta-value" id="matchLevelDisplay">-</div>
           </div>
           <div class="match-meta-row">
             <span class="match-meta-label">Cost</span>
-            <div class="match-meta-value" id="matchCostDisplay">ƒ?"</div>
+            <div class="match-meta-value" id="matchCostDisplay">-</div>
           </div>
           <div class="match-meta-row note-row">
             <span class="match-meta-label">Note</span>
-            <div class="match-meta-note" id="noteDisplay">ƒ?"</div>
+            <div class="match-meta-note" id="noteDisplay">-</div>
           </div>
         </div>
         <div id="matchMetaForm" class="match-meta-form" style="display:none;">
@@ -251,17 +273,6 @@
         <h3>Player Impact (Winners - Errors)</h3>
         <div class="chart-container">
           <canvas id="impactChart"></canvas>
-        </div>
-      </div>
-
-      <!-- TIMELINE CHART -->
-      <div class="panel">
-        <h3>Point Timeline</h3>
-        <div class="chart-container timeline-chart">
-          <div class="timeline-canvas-wrapper">
-            <canvas id="timelineChart"></canvas>
-          </div>
-          <div id="timelineEmpty" class="chart-empty">Timeline appears once two points exist.</div>
         </div>
       </div>
 
