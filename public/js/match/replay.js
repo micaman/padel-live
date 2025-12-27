@@ -15,6 +15,9 @@ export function createReplayControls({ state, dom, buildFromVisible }) {
     const safeIdx = Math.min(Math.max(idx, 0), Math.max(max - 1, 0));
     dom.timeSlider.value = String(safeIdx + 1);
     state.visibleSnapshots = state.snapshots.slice(0, safeIdx + 1);
+    state.visibleEvents = Array.isArray(state.events)
+      ? state.events.slice(0, safeIdx + 1)
+      : state.visibleSnapshots.map((raw) => ({ raw, id: null }));
     if (dom.timeLabel) {
       dom.timeLabel.textContent = `Point ${safeIdx + 1} / ${max}`;
     }

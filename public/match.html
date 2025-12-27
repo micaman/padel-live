@@ -22,6 +22,11 @@
 
     <div id="status" class="status"></div>
     <div id="error" class="error"></div>
+    <div id="adminActions" class="admin-actions" style="display:none;">
+      <div class="admin-actions__badge">Delete mode</div>
+      <div class="admin-actions__copy">You are about to remove data directly from the database.</div>
+      <button id="deleteMatchBtn" type="button" class="btn-danger">Delete match &amp; history</button>
+    </div>
 
     <!-- (kept, but hidden) manual input panel -->
     <div id="inputPanel" style="display:none;">
@@ -288,6 +293,7 @@
               <th>Set</th>
               <th class="stat-number">Point Duration</th>
               <th>Notes</th>
+              <th id="gameHistoryActionHeader" class="stat-number" style="display:none;">Actions</th>
             </tr>
           </thead>
           <tbody id="gameHistoryBody"></tbody>

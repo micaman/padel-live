@@ -803,7 +803,13 @@ app.get('/api/match/:id/history', async (req, res) => {
     const filteredEvents = (events || []).filter(
       (event) => !isStatusOnlyEvent(event.raw)
     );
-    const snapshots = filteredEvents.map((e) => e.raw);
+    const eventsWithMeta = filteredEvents.map((e) => ({
+      id: e.id,
+      raw: e.raw,
+      watchTimestamp: e.watch_timestamp,
+      receivedAt: e.received_at,
+    }));
+    const snapshots = eventsWithMeta.map((e) => e.raw);
 
     const { data: playerRows, error: pErr } = playersRes;
     if (pErr) {
@@ -826,6 +832,7 @@ app.get('/api/match/:id/history', async (req, res) => {
     return res.json({
       matchId,
       snapshots,
+      events: eventsWithMeta,
       players:
         (playerRows || []).map((row) => ({
           team: row.team,
@@ -847,6 +854,92 @@ app.get('/api/match/:id/history', async (req, res) => {
     });
   } catch (e) {
     console.error('Supabase /api/match/:id/history exception:', e);
+    return res.status(500).json({ error: 'Unexpected error' });
+  }
+});
+
+// Delete a single watch event
+app.delete('/api/match/:id/events/:eventId', async (req, res) => {
+  const matchId = String(req.params.id);
+  const eventId = Number(req.params.eventId);
+
+  if (!Number.isFinite(eventId)) {
+    return res.status(400).json({ error: 'Invalid event id' });
+  }
+
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  try {
+    const { data: existing, error: selectErr } = await supabase
+      .from('watch_events')
+      .select('id')
+      .eq('id', eventId)
+      .eq('match_id', matchId)
+      .maybeSingle();
+
+    if (selectErr && selectErr.code !== 'PGRST116') {
+      console.error('Supabase watch_events select (delete) error:', selectErr);
+      return res.status(500).json({ error: 'Failed to verify event' });
+    }
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Event not found for match' });
+    }
+
+    const { error: deleteErr } = await supabase
+      .from('watch_events')
+      .delete()
+      .eq('id', eventId)
+      .eq('match_id', matchId);
+
+    if (deleteErr) {
+      console.error('Supabase watch_events delete error:', deleteErr);
+      return res.status(500).json({ error: 'Failed to delete event' });
+    }
+
+    return res.json({ ok: true, deletedEventId: eventId });
+  } catch (e) {
+    console.error('Supabase delete watch_event exception:', e);
+    return res.status(500).json({ error: 'Unexpected error' });
+  }
+});
+
+// Delete a match and its watch events
+app.delete('/api/match/:id', async (req, res) => {
+  const matchId = String(req.params.id);
+
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  try {
+    const { error: eventsErr } = await supabase
+      .from('watch_events')
+      .delete()
+      .eq('match_id', matchId);
+
+    if (eventsErr) {
+      console.error('Supabase watch_events delete (match) error:', eventsErr);
+      return res.status(500).json({ error: 'Failed to delete watch events' });
+    }
+
+    const { error: matchErr } = await supabase
+      .from('matches')
+      .delete()
+      .eq('match_id', matchId);
+
+    if (matchErr) {
+      console.error('Supabase matches delete error:', matchErr);
+      return res.status(500).json({ error: 'Failed to delete match' });
+    }
+
+    matches.delete(matchId);
+
+    return res.json({ ok: true, deletedMatchId: matchId });
+  } catch (e) {
+    console.error('Supabase delete match exception:', e);
     return res.status(500).json({ error: 'Unexpected error' });
   }
 });

@@ -98,6 +98,51 @@ button:hover {
   background: #343a56;
 }
 
+.btn-danger {
+  border-color: #ff6b6b;
+  background: #3a1f27;
+}
+
+.btn-danger:hover {
+  background: #4a2a34;
+}
+
+.table-action-btn {
+  margin-top: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.text-muted {
+  color: rgba(245, 245, 245, 0.7);
+}
+
+.admin-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #ff6b6b;
+  background: rgba(255, 107, 107, 0.08);
+  border-radius: 6px;
+  margin-top: 10px;
+}
+
+.admin-actions__badge {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ff6b6b;
+  border: 1px solid #ff6b6b;
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.admin-actions__copy {
+  font-size: 13px;
+  flex: 1;
+}
+
 .key-moments {
   margin: 0;
   padding-left: 18px;
