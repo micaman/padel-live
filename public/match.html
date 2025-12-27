@@ -234,7 +234,16 @@
       <!-- KEY MOMENTS -->
       <div class="panel">
         <h3>Key Moments</h3>
-        <ul id="keyMomentsList" class="key-moments"></ul>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;">
+          <div>
+            <h4 style="margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Player Moments</h4>
+            <ul id="playerMomentsList" class="key-moments"></ul>
+          </div>
+          <div>
+            <h4 style="margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Team Moments</h4>
+            <ul id="teamMomentsList" class="key-moments"></ul>
+          </div>
+        </div>
       </div>
 
       <!-- CHART -->
@@ -262,9 +271,10 @@
         <table>
           <thead>
             <tr>
-              <th>Score</th>
-              <th class="stat-number">Point Duration</th>
               <th>Event</th>
+              <th>Score</th>
+              <th>Set</th>
+              <th class="stat-number">Point Duration</th>
               <th>Notes</th>
             </tr>
           </thead>

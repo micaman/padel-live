@@ -105,6 +105,14 @@ button:hover {
   font-size: 13px;
 }
 
+.event-winner {
+  color: #57d657;
+}
+
+.event-error {
+  color: #ff6b6b;
+}
+
 .error {
   color: #ff6b6b;
   font-size: 12px;

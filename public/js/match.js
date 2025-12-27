@@ -126,7 +126,9 @@ const dom = {
   metricsCharts: document.getElementById("metricsCharts"),
   metricsEmpty: document.getElementById("metricsEmpty"),
   prevMatchLink: document.getElementById("prevMatchLink"),
-  nextMatchLink: document.getElementById("nextMatchLink")
+  nextMatchLink: document.getElementById("nextMatchLink"),
+  playerMomentsList: document.getElementById("playerMomentsList"),
+  teamMomentsList: document.getElementById("teamMomentsList")
 };
 
 let replayTimer = null;
@@ -1140,13 +1142,18 @@ function updateTimeStats() {
 }
 
 function renderKeyMoments() {
-  if (!dom.keyMomentsList) return;
-  const items = computeKeyMoments(state.visibleSnapshots);
-  if (!items.length) {
-    dom.keyMomentsList.innerHTML = "<li>Not enough data yet.</li>";
-    return;
-  }
-  dom.keyMomentsList.innerHTML = items.map((entry) => `<li>${entry.text}</li>`).join("");
+  const moments = computeKeyMoments(state.visibleSnapshots);
+  const renderList = (el, list) => {
+    if (!el) return;
+    if (!list || !list.length) {
+      el.innerHTML = "<li>Not enough data yet.</li>";
+      return;
+    }
+    el.innerHTML = list.map((entry) => `<li>${entry.text}</li>`).join("");
+  };
+
+  renderList(dom.playerMomentsList, moments.player);
+  renderList(dom.teamMomentsList, moments.team);
 }
 
 function updateImpactChart() {
@@ -1473,6 +1480,14 @@ function computeKeyMoments(snapshots) {
   const playerErrorStreak = [0, 0, 0, 0];
   const playerBestErrorStreak = [0, 0, 0, 0];
   const playerPointWinStreak = [0, 0, 0, 0];
+  const playerBpConquered = [0, 0, 0, 0];
+  const playerBpWasted = [0, 0, 0, 0];
+  const playerBpOffered = [0, 0, 0, 0];
+  const playerBpSaved = [0, 0, 0, 0];
+  const playerBpConqueredIdx = [null, null, null, null];
+  const playerBpWastedIdx = [null, null, null, null];
+  const playerBpOfferedIdx = [null, null, null, null];
+  const playerBpSavedIdx = [null, null, null, null];
   const playerBestWinnerStreakIdx = [null, null, null, null];
   const playerBestErrorStreakIdx = [null, null, null, null];
   const playerErrorEvents = [[], [], [], []]; // { time, index }
@@ -1495,6 +1510,12 @@ function computeKeyMoments(snapshots) {
   const teamBestErrorStreak = { 1: 0, 2: 0 };
   const teamPointStreak = { 1: 0, 2: 0 };
   const teamBestPointStreak = { 1: 0, 2: 0 };
+  const teamBpConquered = { 1: 0, 2: 0 };
+  const teamBpWasted = { 1: 0, 2: 0 };
+  const teamBpOffered = { 1: 0, 2: 0 };
+  const teamBpSaved = { 1: 0, 2: 0 };
+  const teamBpChances = { 1: 0, 2: 0 };
+  const teamBpFaced = { 1: 0, 2: 0 };
   const teamBestWinnerStreakIdx = { 1: null, 2: null };
   const teamBestErrorStreakIdx = { 1: null, 2: null };
   const teamBestPointStreakIdx = { 1: null, 2: null };
@@ -1595,6 +1616,35 @@ function computeKeyMoments(snapshots) {
 
     const gameEvents = eventsByIndex.get(i) || [];
     const finalEvent = gameEvents[gameEvents.length - 1] || null;
+
+    const isBp = hasBreakPoint(points, serverTeam);
+    const returnTeam = serverTeam === 1 ? 2 : serverTeam === 2 ? 1 : null;
+    if (isBp && returnTeam && finalEvent) {
+      teamBpChances[returnTeam] += 1;
+      teamBpFaced[serverTeam] += 1;
+
+      const isReturner = finalEvent.team === returnTeam;
+      const isServer = finalEvent.team === serverTeam;
+      const pIdx = finalEvent.playerIndex;
+
+      if (isReturner && finalEvent.eventType === "winner") {
+        teamBpConquered[returnTeam] += 1;
+        playerBpConquered[pIdx] += 1;
+        if (playerBpConqueredIdx[pIdx] == null) playerBpConqueredIdx[pIdx] = i;
+      } else if (isReturner && finalEvent.eventType === "error") {
+        teamBpWasted[returnTeam] += 1;
+        playerBpWasted[pIdx] += 1;
+        if (playerBpWastedIdx[pIdx] == null) playerBpWastedIdx[pIdx] = i;
+      } else if (isServer && finalEvent.eventType === "error") {
+        teamBpOffered[serverTeam] += 1;
+        playerBpOffered[pIdx] += 1;
+        if (playerBpOfferedIdx[pIdx] == null) playerBpOfferedIdx[pIdx] = i;
+      } else if (isServer && finalEvent.eventType === "winner") {
+        teamBpSaved[serverTeam] += 1;
+        playerBpSaved[pIdx] += 1;
+        if (playerBpSavedIdx[pIdx] == null) playerBpSavedIdx[pIdx] = i;
+      }
+    }
 
     const creditWinToPlayers = (targetTeam, arr) => {
       if (finalEvent && finalEvent.team === targetTeam && finalEvent.eventType === "winner") {
@@ -1700,10 +1750,87 @@ function computeKeyMoments(snapshots) {
     2: errorGapFromEvents(teamErrorEvents[2])
   };
 
-  const bullets = [];
+  // Align break/breakpoint counts with shared break stats to avoid mismatches
+  const breakStats = computeBreakStats(snapshots) || { team1: { breaks: 0, bps: 0 }, team2: { breaks: 0, bps: 0 } };
+  teamBreakWon[1] = breakStats.team1.breaks ?? teamBreakWon[1];
+  teamBreakWon[2] = breakStats.team2.breaks ?? teamBreakWon[2];
+  teamBreakLost[1] = breakStats.team2.breaks ?? teamBreakLost[1]; // team1 lost serve when team2 broke
+  teamBreakLost[2] = breakStats.team1.breaks ?? teamBreakLost[2];
+  teamBpChances[1] = breakStats.team1.bps ?? teamBpChances[1];
+  teamBpChances[2] = breakStats.team2.bps ?? teamBpChances[2];
+  teamBpFaced[1] = breakStats.team2.bps ?? teamBpFaced[1];
+  teamBpFaced[2] = breakStats.team1.bps ?? teamBpFaced[2];
 
-  const pushIf = (condition, text, pointIndex) => {
-    if (condition) bullets.push({ text, pointIndex, plainText: stripHtmlTags(text) });
+  // If a team has zero breaks, zero out player break wins for that team to prevent phantom entries
+  if (!teamBreakWon[1]) {
+    playerBreakWon[0] = 0;
+    playerBreakWon[1] = 0;
+    playerBreakWonIdx[0] = null;
+    playerBreakWonIdx[1] = null;
+  }
+  if (!teamBreakWon[2]) {
+    playerBreakWon[2] = 0;
+    playerBreakWon[3] = 0;
+    playerBreakWonIdx[2] = null;
+    playerBreakWonIdx[3] = null;
+  }
+  // If a team has zero breaks against them, zero player break losses for that team
+  if (!teamBreakLost[1]) {
+    playerBreakLost[0] = 0;
+    playerBreakLost[1] = 0;
+    playerBreakLostIdx[0] = null;
+    playerBreakLostIdx[1] = null;
+  }
+  if (!teamBreakLost[2]) {
+    playerBreakLost[2] = 0;
+    playerBreakLost[3] = 0;
+    playerBreakLostIdx[2] = null;
+    playerBreakLostIdx[3] = null;
+  }
+
+  // If a team had zero BP chances, zero out their BP conquered/wasted
+  if (!teamBpChances[1]) {
+    playerBpConquered[0] = 0;
+    playerBpConquered[1] = 0;
+    playerBpWasted[0] = 0;
+    playerBpWasted[1] = 0;
+    playerBpConqueredIdx[0] = playerBpConqueredIdx[1] = null;
+    playerBpWastedIdx[0] = playerBpWastedIdx[1] = null;
+  }
+  if (!teamBpChances[2]) {
+    playerBpConquered[2] = 0;
+    playerBpConquered[3] = 0;
+    playerBpWasted[2] = 0;
+    playerBpWasted[3] = 0;
+    playerBpConqueredIdx[2] = playerBpConqueredIdx[3] = null;
+    playerBpWastedIdx[2] = playerBpWastedIdx[3] = null;
+  }
+  // If a team faced zero BPs, zero out their offered/saved counts
+  if (!teamBpFaced[1]) {
+    playerBpOffered[0] = 0;
+    playerBpOffered[1] = 0;
+    playerBpSaved[0] = 0;
+    playerBpSaved[1] = 0;
+    playerBpOfferedIdx[0] = playerBpOfferedIdx[1] = null;
+    playerBpSavedIdx[0] = playerBpSavedIdx[1] = null;
+  }
+  if (!teamBpFaced[2]) {
+    playerBpOffered[2] = 0;
+    playerBpOffered[3] = 0;
+    playerBpSaved[2] = 0;
+    playerBpSaved[3] = 0;
+    playerBpOfferedIdx[2] = playerBpOfferedIdx[3] = null;
+    playerBpSavedIdx[2] = playerBpSavedIdx[3] = null;
+  }
+
+  const playerMoments = [];
+  const teamMoments = [];
+
+  const pushPlayer = (condition, text, pointIndex) => {
+    if (condition) playerMoments.push({ text, pointIndex, plainText: stripHtmlTags(text) });
+  };
+  const pushTeam = (condition, text, pointIndex) => {
+    if (condition) teamMoments.push({ text, pointIndex, plainText: stripHtmlTags(text) });
   };
 
   const topPlayersWithIdx = (arr, idxArr) => {
@@ -1720,139 +1847,93 @@ function computeKeyMoments(snapshots) {
   };
 
   const goldenWinPlayers = topPlayersWithIdx(playerGoldenWon, playerGoldenWonIdx);
-  pushIf(
-    goldenWinPlayers.max > 0,
+  pushPlayer(
+    goldenWinPlayers.max > 1,
     `Player golden points won: ${formatNames(goldenWinPlayers.list)} (${goldenWinPlayers.max}).`,
     goldenWinPlayers.firstIdx
   );
 
   const goldenLossPlayers = topPlayersWithIdx(playerGoldenLost, playerGoldenLostIdx);
-  pushIf(
-    goldenLossPlayers.max > 0,
+  pushPlayer(
+    goldenLossPlayers.max > 1,
     `Player golden points lost: ${formatNames(goldenLossPlayers.list)} (${goldenLossPlayers.max}).`,
     goldenLossPlayers.firstIdx
   );
 
-  const breakWinPlayers = topPlayersWithIdx(playerBreakWon, playerBreakWonIdx);
-  pushIf(
-    breakWinPlayers.max > 0,
-    `Player break points won: ${formatNames(breakWinPlayers.list)} (${breakWinPlayers.max}).`,
-    breakWinPlayers.firstIdx
-  );
-
-  const breakLossPlayers = topPlayersWithIdx(playerBreakLost, playerBreakLostIdx);
-  pushIf(
-    breakLossPlayers.max > 0,
-    `Player break points lost: ${formatNames(breakLossPlayers.list)} (${breakLossPlayers.max}).`,
-    breakLossPlayers.firstIdx
-  );
-
   const lastWinPlayers = topPlayersWithIdx(playerLastWon, playerLastWonIdx);
-  pushIf(
-    lastWinPlayers.max > 0,
+  pushPlayer(
+    lastWinPlayers.max > 1,
     `Player last point wins: ${formatNames(lastWinPlayers.list)} (${lastWinPlayers.max}).`,
     lastWinPlayers.firstIdx
   );
 
   const lastLossPlayers = topPlayersWithIdx(playerLastLost, playerLastLostIdx);
-  pushIf(
-    lastLossPlayers.max > 0,
+  pushPlayer(
+    lastLossPlayers.max > 1,
     `Player last point losses: ${formatNames(lastLossPlayers.list)} (${lastLossPlayers.max}).`,
     lastLossPlayers.firstIdx
   );
 
   const winnerStreakPlayers = topPlayersWithIdx(playerBestWinnerStreak, playerBestWinnerStreakIdx);
-  pushIf(
-    winnerStreakPlayers.max > 0,
+  pushPlayer(
+    winnerStreakPlayers.max > 1,
     `Player longest winner streak: ${formatNames(winnerStreakPlayers.list)} (${winnerStreakPlayers.max}).`,
     winnerStreakPlayers.firstIdx
   );
 
   const errorStreakPlayers = topPlayersWithIdx(playerBestErrorStreak, playerBestErrorStreakIdx);
-  pushIf(
-    errorStreakPlayers.max > 0,
+  pushPlayer(
+    errorStreakPlayers.max > 1,
     `Player longest error streak: ${formatNames(errorStreakPlayers.list)} (${errorStreakPlayers.max}).`,
     errorStreakPlayers.firstIdx
   );
 
-  const goldenWinTeams = topTeamsWithIdx(teamGoldenWon, teamGoldenWonIdx);
-  pushIf(
-    goldenWinTeams.max > 0,
-    `Team golden points won: ${formatTeams(goldenWinTeams.list)} (${goldenWinTeams.max}).`,
-    goldenWinTeams.firstIdx
-  );
-
-  const goldenLossTeams = topTeamsWithIdx(teamGoldenLost, teamGoldenLostIdx);
-  pushIf(
-    goldenLossTeams.max > 0,
-    `Team golden points lost: ${formatTeams(goldenLossTeams.list)} (${goldenLossTeams.max}).`,
-    goldenLossTeams.firstIdx
-  );
-
-  const breakWinTeams = topTeamsWithIdx(teamBreakWon, teamBreakWonIdx);
-  pushIf(
-    breakWinTeams.max > 0,
-    `Team break points won: ${formatTeams(breakWinTeams.list)} (${breakWinTeams.max}).`,
-    breakWinTeams.firstIdx
-  );
-
-  const breakLossTeams = topTeamsWithIdx(teamBreakLost, teamBreakLostIdx);
-  pushIf(
-    breakLossTeams.max > 0,
-    `Team break points lost: ${formatTeams(breakLossTeams.list)} (${breakLossTeams.max}).`,
-    breakLossTeams.firstIdx
-  );
-
   const lastWinTeams = topTeamsWithIdx(teamLastWon, teamLastWonIdx);
-  pushIf(
-    lastWinTeams.max > 0,
+  pushTeam(
+    lastWinTeams.max > 1,
     `Team last point wins: ${formatTeams(lastWinTeams.list)} (${lastWinTeams.max}).`,
     lastWinTeams.firstIdx
   );
 
-  const lastLossTeams = topTeamsWithIdx(teamLastLost, teamLastLostIdx);
-  pushIf(
-    lastLossTeams.max > 0,
-    `Team last point losses: ${formatTeams(lastLossTeams.list)} (${lastLossTeams.max}).`,
-    lastLossTeams.firstIdx
-  );
-
   const winnerStreakTeams = topTeamsWithIdx(teamBestWinnerStreak, teamBestWinnerStreakIdx);
-  pushIf(
-    winnerStreakTeams.max > 0,
+  pushTeam(
+    winnerStreakTeams.max > 1,
     `Team longest winner streak: ${formatTeams(winnerStreakTeams.list)} (${winnerStreakTeams.max}).`,
     winnerStreakTeams.firstIdx
   );
 
   const errorStreakTeams = topTeamsWithIdx(teamBestErrorStreak, teamBestErrorStreakIdx);
-  pushIf(
-    errorStreakTeams.max > 0,
+  pushTeam(
+    errorStreakTeams.max > 1,
     `Team longest error streak: ${formatTeams(errorStreakTeams.list)} (${errorStreakTeams.max}).`,
     errorStreakTeams.firstIdx
   );
 
   const playerErrorGapTop = topPlayers(playerErrorGaps.map((v) => v.gap));
-  pushIf(
+  pushPlayer(
     playerErrorGapTop.max > 0,
     `Longest time between errors (player): ${formatNames(playerErrorGapTop.list)} (${formatDuration(playerErrorGapTop.max)}).`,
     playerErrorGapTop.list.length ? playerErrorGaps[playerErrorGapTop.list[0]].index : null
   );
 
   const teamErrorGapTop = topTeams({ 1: teamErrorGaps[1].gap, 2: teamErrorGaps[2].gap });
-  pushIf(
+  pushTeam(
     teamErrorGapTop.max > 0,
     `Longest time between errors (team): ${formatTeams(teamErrorGapTop.list)} (${formatDuration(teamErrorGapTop.max)}).`,
     teamErrorGapTop.list.length ? teamErrorGaps[teamErrorGapTop.list[0]].index : null
   );
 
   const bestPointRunTeam = topTeamsWithIdx(teamBestPointStreak, teamBestPointStreakIdx);
-  pushIf(
+  pushTeam(
     bestPointRunTeam.max > 0,
     `Longest point run (team): ${formatTeams(bestPointRunTeam.list)} (${bestPointRunTeam.max} consecutive points).`,
     bestPointRunTeam.firstIdx
   );
 
-  return bullets;
+  return {
+    player: playerMoments,
+    team: teamMoments
+  };
 }
 
 function collectGameSetMarkers(snaps, times) {
@@ -1985,6 +2066,22 @@ function hasGamePoint(points = {}, targetTeam) {
   return false;
 }
 
+function hasBreakPoint(points = {}, serverTeam) {
+  if (serverTeam !== 1 && serverTeam !== 2) return false;
+  const serverPts = pointLabelToValue(serverTeam === 1 ? points.team1 : points.team2);
+  const returnPts = pointLabelToValue(serverTeam === 1 ? points.team2 : points.team1);
+  if (returnPts < 40) return false;
+  // If returner is not ahead and not at deuce, no breakpoint
+  if (returnPts < serverPts && !(returnPts === 40 && serverPts === 40)) return false;
+  // Returner at 40 and server below 40
+  if (returnPts === 40 && serverPts < 40) return true;
+  // Golden point (40-40)
+  if (returnPts === 40 && serverPts === 40) return true;
+  // Returner advantage only counts if server has reached 40 (true advantage/deuce phase)
+  if (returnPts >= 50 && serverPts >= 40) return true;
+  return false;
+}
+
 function derivePointEventLabel(prevSnap, currSnap) {
   const prevPlayers = Array.isArray(prevSnap?.players) ? prevSnap.players : [];
   const currPlayers = Array.isArray(currSnap?.players) ? currSnap.players : [];
@@ -2016,7 +2113,8 @@ function updateGameHistory() {
   const times = computeRelativePointTimes(state.visibleSnapshots);
   const keyMoments = computeKeyMoments(state.visibleSnapshots);
   const keyMomentsByIndex = new Map();
-  keyMoments.forEach((km) => {
+  const combinedMoments = [...(keyMoments.player || []), ...(keyMoments.team || [])];
+  combinedMoments.forEach((km) => {
     if (km.pointIndex == null || Number.isNaN(Number(km.pointIndex))) return;
     if (!keyMomentsByIndex.has(km.pointIndex)) keyMomentsByIndex.set(km.pointIndex, []);
     keyMomentsByIndex.get(km.pointIndex).push(km.plainText || km.text);
@@ -2026,10 +2124,21 @@ function updateGameHistory() {
   for (let i = 1; i < state.visibleSnapshots.length; i++) {
     const prev = state.visibleSnapshots[i - 1];
     const curr = state.visibleSnapshots[i];
+
     const durationSec = Math.max(0, (times[i] ?? 0) - (times[i - 1] ?? 0));
     const durationLabel = durationSec > 0 ? formatDuration(durationSec) : "—";
     const scoreLabel = formatPointScoreLabel(curr.points || {});
+    const currSets = extractSetArrayFromSnapshot(curr);
+    const lastSet = currSets[currSets.length - 1] || {};
+    const setLabel = `${lastSet.team1 ?? "-"}-${lastSet.team2 ?? "-"}`;
     const eventLabel = derivePointEventLabel(prev, curr);
+    let coloredEvent = eventLabel;
+    const lowerEvent = eventLabel.toLowerCase();
+    if (lowerEvent.includes("winner")) {
+      coloredEvent = `<span class="event-winner">${eventLabel}</span>`;
+    } else if (lowerEvent.includes("error")) {
+      coloredEvent = `<span class="event-error">${eventLabel}</span>`;
+    }
 
     const notes = [];
     const serverTeam = serverTeamFromServerField(curr.server ?? prev.server);
@@ -2092,9 +2201,10 @@ function updateGameHistory() {
 
     rows.push(
       `<tr>
+        <td>${coloredEvent}</td>
         <td>${scoreLabel}</td>
+        <td>${escapeHtml(setLabel)}</td>
         <td class="stat-number">${durationLabel}</td>
-        <td>${eventLabel}</td>
         <td>${notesHtml}</td>
       </tr>`
     );
