@@ -65,7 +65,11 @@ const state = {
   scheduledAt: null,
   matchLevel: null,
   matchCost: null,
-  isMatchFinished: false
+  isMatchFinished: false,
+  sortState: {
+    team: { key: "impact", dir: "desc" },
+    player: { key: "impact", dir: "desc" }
+  }
 };
 
 const dom = {
@@ -585,6 +589,47 @@ function updateMatchNavigation() {
   }
 }
 
+function getSortState(key, defaultKey, defaultDir = "desc") {
+  if (!state.sortState[key]) {
+    state.sortState[key] = { key: defaultKey, dir: defaultDir };
+  }
+  return state.sortState[key];
+}
+
+function renderSortableHeader(tableEl, columns, sortKey, onSortChange) {
+  if (!tableEl) return;
+  const thead = tableEl.querySelector("thead");
+  if (!thead) return;
+
+  const sortState = getSortState(sortKey, columns.find((c) => c.sortable)?.key ?? null);
+  thead.innerHTML = `<tr>${columns
+    .map((col) => {
+      const indicator =
+        sortState && sortState.key === col.key && col.sortable
+          ? `<span class="sort-indicator">${sortState.dir === "asc" ? "&uarr;" : "&darr;"}</span>`
+          : "";
+      const classes = [
+        col.numeric ? "stat-number" : "",
+        col.sortable ? "sortable" : ""
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const dataAttr = col.sortable ? `data-sort-key="${col.key}"` : "";
+      return `<th class="${classes}" ${dataAttr}>${col.label}${indicator}</th>`;
+    })
+    .join("")}</tr>`;
+
+  thead.querySelectorAll("th[data-sort-key]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sortKey;
+      const current = getSortState(sortKey, columns.find((c) => c.sortable)?.key ?? key);
+      const dir = current.key === key && current.dir === "desc" ? "asc" : "desc";
+      state.sortState[sortKey] = { key, dir };
+      onSortChange?.();
+    });
+  });
+}
+
 function updateTeamStats() {
   if (!state.visibleSnapshots.length || !dom.statsTableBody) return;
   const last = state.visibleSnapshots[state.visibleSnapshots.length - 1];
@@ -601,32 +646,90 @@ function updateTeamStats() {
 
   const team1 = getTotals(0, 1);
   const team2 = getTotals(2, 3);
-  const bpStats = computeBreakStats(state.visibleSnapshots);
+  const bpStats =
+    computeBreakStats(state.visibleSnapshots) || { team1: { breaks: 0, bps: 0 }, team2: { breaks: 0, bps: 0 } };
   const team1Label = `${renderPlayerName(0)} / ${renderPlayerName(1)}`;
   const team2Label = `${renderPlayerName(2)} / ${renderPlayerName(3)}`;
 
   const rows = [
-    `
-      <tr>
-        <td>${team1Label}</td>
-        <td class="stat-number">${team1.winners}</td>
-        <td class="stat-number">${team1.errors}</td>
-        <td class="stat-number">${team1.winners - team1.errors}</td>
-        <td class="stat-number">${bpStats.team1.breaks}/${bpStats.team1.bps}</td>
-      </tr>
-    `,
-    `
-      <tr>
-        <td>${team2Label}</td>
-        <td class="stat-number">${team2.winners}</td>
-        <td class="stat-number">${team2.errors}</td>
-        <td class="stat-number">${team2.winners - team2.errors}</td>
-        <td class="stat-number">${bpStats.team2.breaks}/${bpStats.team2.bps}</td>
-      </tr>
-    `
+    {
+      label: team1Label,
+      winners: team1.winners,
+      errors: team1.errors,
+      impact: team1.winners - team1.errors,
+      breaks: Number(bpStats.team1.breaks || 0),
+      bps: Number(bpStats.team1.bps || 0)
+    },
+    {
+      label: team2Label,
+      winners: team2.winners,
+      errors: team2.errors,
+      impact: team2.winners - team2.errors,
+      breaks: Number(bpStats.team2.breaks || 0),
+      bps: Number(bpStats.team2.bps || 0)
+    }
   ];
 
-  dom.statsTableBody.innerHTML = rows.join("");
+  const columns = [
+    { key: "label", label: "Team", sortable: false },
+    { key: "winners", label: "Winners", sortable: true, numeric: true },
+    { key: "errors", label: "Errors", sortable: true, numeric: true },
+    { key: "impact", label: "Impact (W - E)", sortable: true, numeric: true },
+    { key: "breaks", label: "Breaks/BPs", sortable: true, numeric: true }
+  ];
+
+  const tableEl = dom.statsTableBody.closest("table");
+  renderSortableHeader(tableEl, columns, "team", () => updateTeamStats());
+
+  const sortState = getSortState("team", "impact");
+  const sortableKeys = new Set(columns.filter((c) => c.sortable).map((c) => c.key));
+  const sortKey = sortableKeys.has(sortState.key) ? sortState.key : "impact";
+  const dir = sortState.dir === "asc" ? 1 : -1;
+
+  const sortedRows = [...rows].sort((a, b) => {
+    const va = a[sortKey];
+    const vb = b[sortKey];
+    if (va === vb) return 0;
+    return va > vb ? dir : -dir;
+  });
+
+  const best = {
+    winners: Math.max(...rows.map((r) => r.winners)),
+    breaks: Math.max(...rows.map((r) => r.breaks)),
+    impact: Math.max(...rows.map((r) => r.impact))
+  };
+  const worst = {
+    errors: Math.max(...rows.map((r) => r.errors)),
+    impact: Math.min(...rows.map((r) => r.impact))
+  };
+
+  const cellClass = (key, value) => {
+    if (!Number.isFinite(value)) return "";
+    if (key === "errors") return value === worst.errors ? "best-cell-bad" : "";
+    if (key === "impact") {
+      if (value === best.impact) return "best-cell-good";
+      if (value === worst.impact) return "best-cell-bad";
+      return "";
+    }
+    if (key === "winners" || key === "breaks") {
+      return value === best[key] ? "best-cell-good" : "";
+    }
+    return "";
+  };
+
+  dom.statsTableBody.innerHTML = sortedRows
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.label}</td>
+        <td class="stat-number ${cellClass("winners", row.winners)}">${row.winners}</td>
+        <td class="stat-number ${cellClass("errors", row.errors)}">${row.errors}</td>
+        <td class="stat-number ${cellClass("impact", row.impact)}">${row.impact}</td>
+        <td class="stat-number ${cellClass("breaks", row.breaks)}">${row.breaks}/${row.bps}</td>
+      </tr>
+    `
+    )
+    .join("");
 }
 
 function updatePlayerStatsTable() {
@@ -639,7 +742,6 @@ function updatePlayerStatsTable() {
   const last = state.visibleSnapshots[state.visibleSnapshots.length - 1];
   const players = Array.isArray(last.players) ? last.players : [];
   const playerRows = [];
-  let bestImpact = -Infinity;
 
   for (let i = 0; i < 4; i++) {
     const pl = players[i] || { winners: 0, errors: 0 };
@@ -653,23 +755,63 @@ function updatePlayerStatsTable() {
       errors: e,
       impact
     });
-    if (impact > bestImpact) bestImpact = impact;
   }
 
-  const rows = playerRows
+  const columns = [
+    { key: "label", label: "Player", sortable: false },
+    { key: "winners", label: "Winners", sortable: true, numeric: true },
+    { key: "errors", label: "Errors", sortable: true, numeric: true },
+    { key: "impact", label: "Impact (W - E)", sortable: true, numeric: true }
+  ];
+
+  const tableEl = dom.playerStatsBody.closest("table");
+  renderSortableHeader(tableEl, columns, "player", () => updatePlayerStatsTable());
+
+  const sortState = getSortState("player", "impact");
+  const sortableKeys = new Set(columns.filter((c) => c.sortable).map((c) => c.key));
+  const sortKey = sortableKeys.has(sortState.key) ? sortState.key : "impact";
+  const dir = sortState.dir === "asc" ? 1 : -1;
+
+  const sortedRows = [...playerRows].sort((a, b) => {
+    const va = a[sortKey];
+    const vb = b[sortKey];
+    if (va === vb) return 0;
+    return va > vb ? dir : -dir;
+  });
+
+  const best = {
+    winners: Math.max(...playerRows.map((r) => r.winners)),
+    impact: Math.max(...playerRows.map((r) => r.impact))
+  };
+  const worst = {
+    errors: Math.max(...playerRows.map((r) => r.errors)),
+    impact: Math.min(...playerRows.map((r) => r.impact))
+  };
+
+  const cellClass = (key, value) => {
+    if (!Number.isFinite(value)) return "";
+    if (key === "errors") return value === worst.errors ? "best-cell-bad" : "";
+    if (key === "impact") {
+      if (value === best.impact) return "best-cell-good";
+      if (value === worst.impact) return "best-cell-bad";
+      return "";
+    }
+    if (key === "winners") return value === best.winners ? "best-cell-good" : "";
+    return "";
+  };
+
+  dom.playerStatsBody.innerHTML = sortedRows
     .map(
       (row) => `
-      <tr class="${row.impact === bestImpact ? "best-player" : ""}">
+      <tr>
         <td>${renderPlayerName(row.index)}</td>
-        <td class="stat-number">${row.winners}</td>
-        <td class="stat-number">${row.errors}</td>
-        <td class="stat-number">${row.impact}</td>
+        <td class="stat-number ${cellClass("winners", row.winners)}">${row.winners}</td>
+        <td class="stat-number ${cellClass("errors", row.errors)}">${row.errors}</td>
+        <td class="stat-number ${cellClass("impact", row.impact)}">${row.impact}</td>
       </tr>
     `
     )
     .join("");
-
-  dom.playerStatsBody.innerHTML = rows;
 }
 
 function updateTimeStats() {
@@ -1111,6 +1253,7 @@ function computeKeyMoments(snapshots) {
         teamBestErrorStreak[ev.team] = teamErrorStreak[ev.team];
         teamBestErrorStreakIdx[ev.team] = ev.index;
       }
+      teamErrorStreak[winnerTeam] = 0;
       teamWinnerStreak[ev.team] = 0;
     }
 
@@ -1189,16 +1332,19 @@ function computeKeyMoments(snapshots) {
     }
 
     // Last point of game
-    teamLastWon[gameWinner] += 1;
-    teamLastLost[loser] += 1;
-    creditWinToPlayers(gameWinner, playerLastWon);
-    creditLossToPlayers(loser, playerLastLost);
-    teamLastWonIdx[gameWinner] = i;
-    teamLastLostIdx[loser] = i;
-    if (finalEvent && finalEvent.team === gameWinner && finalEvent.eventType === "winner") {
+    const gamePointWonByWinner = finalEvent && finalEvent.team === gameWinner && finalEvent.eventType === "winner";
+    const gamePointLostByError = finalEvent && finalEvent.team === loser && finalEvent.eventType === "error";
+
+    if (gamePointWonByWinner) {
+      teamLastWon[gameWinner] += 1;
+      teamLastWonIdx[gameWinner] = i;
+      creditWinToPlayers(gameWinner, playerLastWon);
       playerLastWonIdx[finalEvent.playerIndex] = i;
     }
-    if (finalEvent && finalEvent.team === loser && finalEvent.eventType === "error") {
+    if (gamePointLostByError) {
+      teamLastLost[loser] += 1;
+      teamLastLostIdx[loser] = i;
+      creditLossToPlayers(loser, playerLastLost);
       playerLastLostIdx[finalEvent.playerIndex] = i;
     }
   }
@@ -1308,84 +1454,84 @@ function computeKeyMoments(snapshots) {
   const goldenWinPlayers = topPlayersWithIdx(playerGoldenWon, playerGoldenWonIdx);
   pushPlayer(
     goldenWinPlayers.max > 1,
-    `Player golden points won: ${formatNames(goldenWinPlayers.list)} (${goldenWinPlayers.max}).`,
+    `Most winners on golden point: ${formatNames(goldenWinPlayers.list)} (${goldenWinPlayers.max}).`,
     goldenWinPlayers.firstIdx
   );
 
   const goldenLossPlayers = topPlayersWithIdx(playerGoldenLost, playerGoldenLostIdx);
   pushPlayer(
     goldenLossPlayers.max > 1,
-    `Player golden points lost: ${formatNames(goldenLossPlayers.list)} (${goldenLossPlayers.max}).`,
+    `Most errors on golden point: ${formatNames(goldenLossPlayers.list)} (${goldenLossPlayers.max}).`,
     goldenLossPlayers.firstIdx
   );
 
   const lastWinPlayers = topPlayersWithIdx(playerLastWon, playerLastWonIdx);
   pushPlayer(
     lastWinPlayers.max > 1,
-    `Player last point wins: ${formatNames(lastWinPlayers.list)} (${lastWinPlayers.max}).`,
+    `Most winners on game points: ${formatNames(lastWinPlayers.list)} (${lastWinPlayers.max}).`,
     lastWinPlayers.firstIdx
   );
 
   const lastLossPlayers = topPlayersWithIdx(playerLastLost, playerLastLostIdx);
   pushPlayer(
     lastLossPlayers.max > 1,
-    `Player last point losses: ${formatNames(lastLossPlayers.list)} (${lastLossPlayers.max}).`,
+    `Most errors on game points: ${formatNames(lastLossPlayers.list)} (${lastLossPlayers.max}).`,
     lastLossPlayers.firstIdx
   );
 
   const winnerStreakPlayers = topPlayersWithIdx(playerBestWinnerStreak, playerBestWinnerStreakIdx);
   pushPlayer(
     winnerStreakPlayers.max > 1,
-    `Player longest winner streak: ${formatNames(winnerStreakPlayers.list)} (${winnerStreakPlayers.max}).`,
+    `Longest winner streak: ${formatNames(winnerStreakPlayers.list)} (${winnerStreakPlayers.max}).`,
     winnerStreakPlayers.firstIdx
   );
 
   const errorStreakPlayers = topPlayersWithIdx(playerBestErrorStreak, playerBestErrorStreakIdx);
   pushPlayer(
     errorStreakPlayers.max > 1,
-    `Player longest error streak: ${formatNames(errorStreakPlayers.list)} (${errorStreakPlayers.max}).`,
+    `Longest error streak: ${formatNames(errorStreakPlayers.list)} (${errorStreakPlayers.max}).`,
     errorStreakPlayers.firstIdx
   );
 
   const lastWinTeams = topTeamsWithIdx(teamLastWon, teamLastWonIdx);
   pushTeam(
     lastWinTeams.max > 1,
-    `Team last point wins: ${formatTeams(lastWinTeams.list)} (${lastWinTeams.max}).`,
+    `Most team winners on game points: ${formatTeams(lastWinTeams.list)} (${lastWinTeams.max}).`,
     lastWinTeams.firstIdx
   );
 
   const winnerStreakTeams = topTeamsWithIdx(teamBestWinnerStreak, teamBestWinnerStreakIdx);
   pushTeam(
     winnerStreakTeams.max > 1,
-    `Team longest winner streak: ${formatTeams(winnerStreakTeams.list)} (${winnerStreakTeams.max}).`,
+    `Longest team winner streak: ${formatTeams(winnerStreakTeams.list)} (${winnerStreakTeams.max}).`,
     winnerStreakTeams.firstIdx
   );
 
   const errorStreakTeams = topTeamsWithIdx(teamBestErrorStreak, teamBestErrorStreakIdx);
   pushTeam(
     errorStreakTeams.max > 1,
-    `Team longest error streak: ${formatTeams(errorStreakTeams.list)} (${errorStreakTeams.max}).`,
+    `Longest team error streak: ${formatTeams(errorStreakTeams.list)} (${errorStreakTeams.max}).`,
     errorStreakTeams.firstIdx
   );
 
   const playerErrorGapTop = topPlayers(playerErrorGaps.map((v) => v.gap));
   pushPlayer(
     playerErrorGapTop.max > 0,
-    `Longest time between errors (player): ${formatNames(playerErrorGapTop.list)} (${formatDuration(playerErrorGapTop.max)}).`,
+    `Longest time between errors: ${formatNames(playerErrorGapTop.list)} (${formatDuration(playerErrorGapTop.max)}).`,
     playerErrorGapTop.list.length ? playerErrorGaps[playerErrorGapTop.list[0]].index : null
   );
 
   const teamErrorGapTop = topTeams({ 1: teamErrorGaps[1].gap, 2: teamErrorGaps[2].gap });
   pushTeam(
     teamErrorGapTop.max > 0,
-    `Longest time between errors (team): ${formatTeams(teamErrorGapTop.list)} (${formatDuration(teamErrorGapTop.max)}).`,
+    `Longest time between errors: ${formatTeams(teamErrorGapTop.list)} (${formatDuration(teamErrorGapTop.max)}).`,
     teamErrorGapTop.list.length ? teamErrorGaps[teamErrorGapTop.list[0]].index : null
   );
 
   const bestPointRunTeam = topTeamsWithIdx(teamBestPointStreak, teamBestPointStreakIdx);
   pushTeam(
     bestPointRunTeam.max > 0,
-    `Longest point run (team): ${formatTeams(bestPointRunTeam.list)} (${bestPointRunTeam.max} consecutive points).`,
+    `Longest point run: ${formatTeams(bestPointRunTeam.list)} (${bestPointRunTeam.max} consecutive points).`,
     bestPointRunTeam.firstIdx
   );
 
@@ -1432,10 +1578,18 @@ function hasGamePoint(points = {}, targetTeam) {
   return false;
 }
 
-function derivePointEventLabel(prevSnap, currSnap) {
+function derivePointEventLabel(prevSnap, currSnap, eventsForPoint = []) {
+  const latestEvent = eventsForPoint[eventsForPoint.length - 1] || null;
+  if (latestEvent) {
+    const playerLabel = escapeHtml(state.currentNames[latestEvent.playerIndex] || `P${latestEvent.playerIndex + 1}`);
+    const suffix = latestEvent.eventType === "winner" ? "Winner" : "Error";
+    return { label: `${playerLabel} ${suffix}`, team: latestEvent.team };
+  }
+
   const prevPlayers = Array.isArray(prevSnap?.players) ? prevSnap.players : [];
   const currPlayers = Array.isArray(currSnap?.players) ? currSnap.players : [];
   let fallback = null;
+  let fallbackTeam = null;
 
   for (let pIdx = 0; pIdx < 4; pIdx++) {
     const prevStats = prevPlayers[pIdx] || { winners: 0, errors: 0 };
@@ -1443,12 +1597,16 @@ function derivePointEventLabel(prevSnap, currSnap) {
     const wDiff = Number(currStats.winners || 0) - Number(prevStats.winners || 0);
     const eDiff = Number(currStats.errors || 0) - Number(prevStats.errors || 0);
     const playerLabel = escapeHtml(state.currentNames[pIdx] || `P${pIdx + 1}`);
+    const teamForPlayer = pIdx < 2 ? 1 : 2;
 
-    if (wDiff > 0) return `${playerLabel} Winner`;
-    if (eDiff > 0 && !fallback) fallback = `${playerLabel} Error`;
+    if (wDiff > 0) return { label: `${playerLabel} Winner`, team: teamForPlayer };
+    if (eDiff > 0 && !fallback) {
+      fallback = `${playerLabel} Error`;
+      fallbackTeam = teamForPlayer;
+    }
   }
 
-  return fallback || "Point";
+  return { label: fallback || "Point", team: fallbackTeam };
 }
 
 function updateGameHistory() {
@@ -1456,12 +1614,18 @@ function updateGameHistory() {
   if (!body) return;
 
   if (!state.visibleSnapshots.length || state.visibleSnapshots.length < 2) {
-    body.innerHTML = `<tr><td colspan="4" class="stat-number">No points yet.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" class="stat-number">No points yet.</td></tr>`;
     return;
   }
 
   const times = computeRelativePointTimes(state.visibleSnapshots);
   const keyMoments = computeKeyMoments(state.visibleSnapshots);
+  const pointEvents = collectPointEvents(state.visibleSnapshots);
+  const pointEventsByIndex = new Map();
+  pointEvents.forEach((ev) => {
+    if (!pointEventsByIndex.has(ev.index)) pointEventsByIndex.set(ev.index, []);
+    pointEventsByIndex.get(ev.index).push(ev);
+  });
   const keyMomentsByIndex = new Map();
   const combinedMoments = [...(keyMoments.player || []), ...(keyMoments.team || [])];
   combinedMoments.forEach((km) => {
@@ -1481,7 +1645,8 @@ function updateGameHistory() {
     const currSets = extractSetArrayFromSnapshot(curr);
     const lastSet = currSets[currSets.length - 1] || {};
     const setLabel = `${lastSet.team1 ?? "-"}-${lastSet.team2 ?? "-"}`;
-    const eventLabel = derivePointEventLabel(prev, curr);
+    const eventsForPoint = pointEventsByIndex.get(i) || [];
+    const { label: eventLabel, team: eventTeam } = derivePointEventLabel(prev, curr, eventsForPoint);
     let coloredEvent = eventLabel;
     const lowerEvent = eventLabel.toLowerCase();
     if (lowerEvent.includes("winner")) {
@@ -1533,6 +1698,9 @@ function updateGameHistory() {
       });
     }
 
+    const eventTeam1Html = eventTeam === 1 || eventTeam == null ? coloredEvent : "";
+    const eventTeam2Html = eventTeam === 2 ? coloredEvent : "";
+
     const notesHtml = notes.length
       ? notes
           .map((note) => {
@@ -1551,7 +1719,8 @@ function updateGameHistory() {
 
     rows.push(
       `<tr>
-        <td>${coloredEvent}</td>
+        <td>${eventTeam1Html}</td>
+        <td>${eventTeam2Html}</td>
         <td>${scoreLabel}</td>
         <td>${escapeHtml(setLabel)}</td>
         <td class="stat-number">${durationLabel}</td>
@@ -1562,7 +1731,7 @@ function updateGameHistory() {
 
   body.innerHTML = rows.length
     ? rows.join("")
-    : `<tr><td colspan="4" class="stat-number">No points yet.</td></tr>`;
+    : `<tr><td colspan="6" class="stat-number">No points yet.</td></tr>`;
 }
 
 function setStatus(message) {

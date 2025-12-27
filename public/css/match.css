@@ -307,6 +307,26 @@ th {
   text-align: right;
 }
 
+.sortable {
+  cursor: pointer;
+}
+
+.sort-indicator {
+  font-size: 10px;
+  opacity: 0.6;
+  margin-left: 4px;
+}
+
+.best-cell-good {
+  color: #3ac97c;
+  font-weight: 600;
+}
+
+.best-cell-bad {
+  color: #ff6b6b;
+  font-weight: 600;
+}
+
 .best-player {
   background: rgba(87, 214, 87, 0.08);
 }
