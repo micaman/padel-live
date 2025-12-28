@@ -38,13 +38,14 @@ export function renderSetColumns(setsArray, isMatchFinished, setCells) {
   }
 }
 
-export function renderPointsAndServer(snap, dom, serverDots) {
+export function renderPointsAndServer(snap, dom, serverDots, isMatchFinished = false) {
   const pts = snap.points || {};
   if (dom.team1Points) dom.team1Points.textContent = pts.team1 ?? "0";
   if (dom.team2Points) dom.team2Points.textContent = pts.team2 ?? "0";
 
   const serverIdx = serverPlayerIndex(snap.server);
   const serverTeam = serverTeamFromServerField(snap.server);
+  const hideServers = Boolean(isMatchFinished);
   serverDots.forEach((dot, idx) => {
     if (!dot) return;
     const show =
@@ -55,7 +56,7 @@ export function renderPointsAndServer(snap, dom, serverDots) {
         : serverTeam === 2
         ? idx === 2
         : false;
-    dot.style.display = show ? "inline-block" : "none";
+    dot.style.display = show && !hideServers ? "inline-block" : "none";
   });
 }
 

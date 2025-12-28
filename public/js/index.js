@@ -38,6 +38,22 @@ function parseSets(sets) {
     .filter(Boolean);
 }
 
+function computeMvpIndicesFromSnap(snap) {
+  const players = Array.isArray(snap?.players) ? snap.players : [];
+  if (!players.length) return [];
+  const impacts = [];
+  for (let i = 0; i < 4; i++) {
+    const pl = players[i] || { winners: 0, errors: 0 };
+    impacts.push(Number(pl.winners || 0) - Number(pl.errors || 0));
+  }
+  const maxImpact = Math.max(...impacts);
+  if (!Number.isFinite(maxImpact)) return [];
+  return impacts.reduce((acc, val, idx) => {
+    if (val === maxImpact) acc.push(idx);
+    return acc;
+  }, []);
+}
+
 function shouldHideSet( match, top, bottom) {
   return shouldHideSetForFinishedMatch(match, top, bottom);
 }
@@ -162,11 +178,13 @@ function createMatchCard(m) {
                 <span class="player-chip" data-player-index="0">
                   <span class="server-dot" style="display:none"></span>
                   <span class="player-name"></span>
+                  <span class="mvp-badge" aria-label="MVP" title="Match MVP"></span>
                 </span>
                 <span class="player-sep">/</span>
                 <span class="player-chip" data-player-index="1">
                   <span class="server-dot" style="display:none"></span>
                   <span class="player-name"></span>
+                  <span class="mvp-badge" aria-label="MVP" title="Match MVP"></span>
                 </span>
               </div>
             </div>
@@ -175,11 +193,13 @@ function createMatchCard(m) {
                 <span class="player-chip" data-player-index="2">
                   <span class="server-dot" style="display:none"></span>
                   <span class="player-name"></span>
+                  <span class="mvp-badge" aria-label="MVP" title="Match MVP"></span>
                 </span>
                 <span class="player-sep">/</span>
                 <span class="player-chip" data-player-index="3">
                   <span class="server-dot" style="display:none"></span>
                   <span class="player-name"></span>
+                  <span class="mvp-badge" aria-label="MVP" title="Match MVP"></span>
                 </span>
               </div>
             </div>
@@ -242,22 +262,33 @@ function createMatchCard(m) {
 
   const serverIdx = serverPlayerIndex(snap.server);
   const serverTeam = serverTeamFromServerField(snap.server);
+  const isFinished =
+    (m.status && String(m.status).toLowerCase() === "finished") ||
+    Boolean(m.finishedAt || snap.finishedAt);
   const dots = card.querySelectorAll(".player-chip .server-dot");
   dots.forEach((dot) => {
     dot.style.display = "none";
   });
-  if (serverIdx != null) {
+  if (!isFinished && serverIdx != null) {
     const dot = card.querySelector(
       `.player-chip[data-player-index="${serverIdx}"] .server-dot`
     );
     if (dot) dot.style.display = "inline-block";
-  } else if (serverTeam === 1 || serverTeam === 2) {
+  } else if (!isFinished && (serverTeam === 1 || serverTeam === 2)) {
     const fallbackIdx = serverTeam === 1 ? 0 : 2;
     const dot = card.querySelector(
       `.player-chip[data-player-index="${fallbackIdx}"] .server-dot`
     );
     if (dot) dot.style.display = "inline-block";
   }
+
+  const mvpIndices = isFinished ? computeMvpIndicesFromSnap(snap) : [];
+  const chips = card.querySelectorAll(".player-chip");
+  chips.forEach((chip) => chip.classList.remove("is-mvp"));
+  mvpIndices.forEach((idx) => {
+    const chip = card.querySelector(`.player-chip[data-player-index="${idx}"]`);
+    if (chip) chip.classList.add("is-mvp");
+  });
 
   return card;
 }

@@ -11,6 +11,7 @@ const summaryEls = {
   winPct: document.getElementById("summaryWinPct"),
   avgWinners: document.getElementById("summaryAvgWinners"),
   avgErrors: document.getElementById("summaryAvgErrors"),
+  timePlaying: document.getElementById("summaryTimePlaying"),
   totalSpent: document.getElementById("summarySpent")
 };
 
@@ -73,6 +74,18 @@ function formatNumber(value, decimals = 1) {
   return String(Math.round(value * factor) / factor);
 }
 
+function formatDurationLabel(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0m";
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
 function formatDate(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -111,6 +124,9 @@ function renderSummary(data) {
   summaryEls.winPct.textContent = formatPercent(data.winPct);
   summaryEls.avgWinners.textContent = formatNumber(data.avgWinners ?? 0);
   summaryEls.avgErrors.textContent = formatNumber(data.avgErrors ?? 0);
+  if (summaryEls.timePlaying) {
+    summaryEls.timePlaying.textContent = formatDurationLabel(data.totalDurationSec ?? 0);
+  }
   if (summaryEls.totalSpent) {
     summaryEls.totalSpent.textContent = formatCurrency(data.totalSpent ?? 0);
   }

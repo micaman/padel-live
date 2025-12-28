@@ -54,11 +54,13 @@
                 <span class="player-chip" data-player-index="0">
                   <span class="server-dot" id="t1p1ServerDot" style="display:none;"></span>
                   <span class="player-name" id="t1p1Name">TEAM 1 P1</span>
+                  <span class="mvp-badge" aria-label="MVP" title="Match MVP" id="t1p1Mvp"></span>
                 </span>
                 <span class="player-sep">/</span>
                 <span class="player-chip" data-player-index="1">
                   <span class="server-dot" id="t1p2ServerDot" style="display:none;"></span>
                   <span class="player-name" id="t1p2Name">TEAM 1 P2</span>
+                  <span class="mvp-badge" aria-label="MVP" title="Match MVP" id="t1p2Mvp"></span>
                 </span>
               </div>
             </div>
@@ -67,11 +69,13 @@
                 <span class="player-chip" data-player-index="2">
                   <span class="server-dot" id="t2p1ServerDot" style="display:none;"></span>
                   <span class="player-name" id="t2p1Name">TEAM 2 P1</span>
+                  <span class="mvp-badge" aria-label="MVP" title="Match MVP" id="t2p1Mvp"></span>
                 </span>
                 <span class="player-sep">/</span>
                 <span class="player-chip" data-player-index="3">
                   <span class="server-dot" id="t2p2ServerDot" style="display:none;"></span>
                   <span class="player-name" id="t2p2Name">TEAM 2 P2</span>
+                  <span class="mvp-badge" aria-label="MVP" title="Match MVP" id="t2p2Mvp"></span>
                 </span>
               </div>
             </div>
@@ -101,16 +105,22 @@
 
       <br>
 
-      <!-- SLIDER -->
-      <div id="sliderRow" class="slider-row" style="display:none;">
-        <button id="replayBtn" type="button">Replay</button>
-        <span id="timeLabel">Point 1 / 1</span>
-        <input type="range" id="timeSlider" min="1" max="1" value="1">
-      </div>
-
-      <div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center;">
-        <button id="editNamesBtn">Edit names</button>
-        <button id="editMetaBtn">Add match info</button>
+      <div class="controls-bar">
+        <div id="sliderRow" class="slider-row" style="display:none;">
+          <button id="replayBtn" type="button" class="pill-btn pill-btn--primary">Replay</button>
+          <div class="slider-shell">
+            <div class="slider-top">
+              <span class="time-label" id="timeLabel">Point 1 / 1</span>
+              <span class="live-pill" id="livePill">Live</span>
+            </div>
+            <input type="range" id="timeSlider" min="1" max="1" value="1">
+          </div>
+        </div>
+        <div class="control-actions">
+          <button id="autoRefreshBtn" type="button" class="pill-btn pill-btn--ghost">Auto refresh: On</button>
+          <button id="editNamesBtn" type="button" class="pill-btn">Edit names</button>
+          <button id="editMetaBtn" type="button" class="pill-btn">Add match info</button>
+        </div>
       </div>
 
       <!-- NAMES + DEBUG PANEL -->

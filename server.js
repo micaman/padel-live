@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
+const console = require('console');
 
 const app = express();
 app.use(express.json());
@@ -262,13 +263,13 @@ function teamSlotToIndex(team, slot) {
 }
 
 const DAY_LABELS = [
-  'Sunday',
   'Monday',
   'Tuesday',
   'Wednesday',
   'Thursday',
   'Friday',
   'Saturday',
+  'Sunday',
 ];
 
 function getDayLabel(timestamp) {
@@ -276,6 +277,114 @@ function getDayLabel(timestamp) {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return 'Unknown';
   return DAY_LABELS[date.getDay()];
+}
+
+async function fetchMatchDurations(matchIds) {
+  const result = new Map();
+  if (!supabase || !Array.isArray(matchIds) || !matchIds.length) return result;
+
+  try {
+    const secondsFromRow = (row) => {
+      const rawTs = Number(row.raw?.timestamp);
+      if (Number.isFinite(rawTs)) return rawTs;
+      const watchTs = row.watch_timestamp ? new Date(row.watch_timestamp).getTime() / 1000 : null;
+      if (Number.isFinite(watchTs)) return watchTs;
+      const recvTs = row.received_at ? new Date(row.received_at).getTime() / 1000 : null;
+      if (Number.isFinite(recvTs)) return recvTs;
+      return null;
+    };
+
+    const [latestRes, firstRes] = await Promise.all([
+      supabase
+        .from('latest_watch_event_per_match')
+        .select('match_id, raw, watch_timestamp, received_at')
+        .in('match_id', matchIds),
+      supabase
+        .from('first_watch_event_per_match')
+        .select('match_id, raw, watch_timestamp, received_at')
+        .in('match_id', matchIds),
+    ]);
+
+    const latestMap = new Map();
+    if (latestRes.data) {
+      for (const row of latestRes.data) {
+        const ts = secondsFromRow(row);
+        if (!Number.isFinite(ts)) continue;
+        latestMap.set(String(row.match_id), ts);
+      }
+    } else if (latestRes.error) {
+      console.error('Supabase latest view select error (duration):', latestRes.error);
+    }
+
+    const firstMap = new Map();
+    if (firstRes.data) {
+      for (const row of firstRes.data) {
+        const ts = secondsFromRow(row);
+        if (!Number.isFinite(ts)) continue;
+        firstMap.set(String(row.match_id), ts);
+      }
+    } else if (firstRes.error) {
+      console.error('Supabase first view select error (duration):', firstRes.error);
+      const { data: fallbackData, error: fallbackErr } = await supabase
+        .from('watch_events')
+        .select('match_id, raw, watch_timestamp, received_at')
+        .in('match_id', matchIds)
+        .order('match_id', { ascending: true })
+        .order('watch_timestamp', { ascending: true, nullsFirst: true })
+        .order('id', { ascending: true });
+      if (fallbackErr) {
+        console.error('Supabase earliest fallback select error (duration):', fallbackErr);
+      } else {
+        for (const row of fallbackData || []) {
+          const key = String(row.match_id);
+          if (firstMap.has(key)) continue;
+          const ts = secondsFromRow(row);
+          if (!Number.isFinite(ts)) continue;
+          firstMap.set(key, ts);
+        }
+      }
+    }
+
+    const formatDurationHuman = (seconds) => {
+      if (!Number.isFinite(seconds) || seconds < 0) return 'n/a';
+      const total = Math.round(seconds);
+      const h = Math.floor(total / 3600);
+      const m = Math.floor((total % 3600) / 60);
+      const s = total % 60;
+      if (h > 0) return `${h}h ${m}m ${s}s`;
+      if (m > 0) return `${m}m ${s}s`;
+      return `${s}s`;
+    };
+
+    let totalDurationSec = 0;
+    for (const matchId of matchIds) {
+      const key = String(matchId);
+      const start = firstMap.get(key);
+      const end = latestMap.get(key);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+      const durationSec = Math.max(0, end - start);
+      /*
+      console.log('match duration', {
+        matchId: key,
+        start,
+        end,
+        durationSec,
+        durationLabel: formatDurationHuman(durationSec),
+      });
+      */
+      result.set(key, durationSec);
+      totalDurationSec += durationSec;
+    }
+/*    console.log('total duration', {
+      matches: result.size,
+      durationSec: totalDurationSec,
+      durationLabel: formatDurationHuman(totalDurationSec),
+    });
+*/
+  } catch (e) {
+    console.error('Supabase fetchMatchDurations exception:', e);
+  }
+  return result;
 }
 
 async function fetchLatestSnapshotsForMatches(matchIds) {
@@ -1466,6 +1575,7 @@ app.get('/api/player/:id/profile', async (req, res) => {
       totalErrors: 0,
       avgWinners: 0,
       avgErrors: 0,
+      totalDurationSec: 0,
     },
     breakdowns: {
       byType: [],
@@ -1522,7 +1632,7 @@ app.get('/api/player/:id/profile', async (req, res) => {
         supabase
           .from('matches')
           .select(
-            'match_id, status, winner_team, match_type_id, match_location_id, finished_at, scheduled_at, match_level, match_cost',
+            'match_id, status, winner_team, match_type_id, match_location_id, finished_at, scheduled_at, created_at, match_level, match_cost',
           )
           .in('match_id', matchIds),
         supabase
@@ -1601,6 +1711,7 @@ app.get('/api/player/:id/profile', async (req, res) => {
     }
 
     const snapshotsMap = await fetchLatestSnapshotsForMatches(matchIds);
+    const durationsByMatch = await fetchMatchDurations(matchIds);
 
     const summary = { ...payload.summary };
     const typeBuckets = new Map();
@@ -1691,6 +1802,13 @@ app.get('/api/player/:id/profile', async (req, res) => {
       if (isLoss) summary.losses += 1;
       summary.totalWinners += winners;
       summary.totalErrors += errors;
+      const isFinishedMatch =
+        (meta.status && String(meta.status).toLowerCase() === 'finished') ||
+        Boolean(meta.finished_at);
+      const durationSec = durationsByMatch.get(matchId);
+      if (isFinishedMatch && Number.isFinite(durationSec)) {
+        summary.totalDurationSec = (summary.totalDurationSec || 0) + durationSec;
+      }
 
       const typeRow = meta.match_type_id
         ? typeById.get(meta.match_type_id)
@@ -1819,6 +1937,7 @@ app.get('/api/player/:id/profile', async (req, res) => {
       summary.winPct = null;
       summary.avgWinners = 0;
       summary.avgErrors = 0;
+      summary.totalDurationSec = summary.totalDurationSec || 0;
     }
     summary.totalSpent = totalSpent;
 
@@ -1944,8 +2063,3 @@ const port = process.env.PORT || 10000;
 app.listen(port, () => {
   console.log(`Listening on ${port}`);
 });
-
-
-
-
-
