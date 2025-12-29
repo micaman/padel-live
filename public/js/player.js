@@ -43,6 +43,18 @@ const tableSortState = new Map();
 
 const calendarContainer = document.getElementById("matchCalendar");
 const MOBILE_BREAKPOINT = 520;
+let impactChart = null;
+let lastImpactLines = [];
+let selectedImpactMatchId = "all";
+
+function heatColor(value, min, max) {
+  if (!Number.isFinite(value)) return "hsl(200, 50%, 60%)";
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return "hsl(200, 50%, 60%)";
+  const span = max - min || 1;
+  const t = Math.max(0, Math.min(1, (value - min) / span));
+  const hue = 10 + t * 120; // red-ish (low) to green (high)
+  return `hsl(${hue}, 70%, 55%)`;
+}
 
 function setStatus(message) {
   if (statusEl) statusEl.textContent = message || "";
@@ -104,6 +116,13 @@ function formatDate(value) {
     month: "short",
     day: "numeric"
   });
+}
+
+function formatShortDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function formatCurrency(value) {
@@ -602,6 +621,162 @@ function renderRecent(matches) {
   recentMatchesEl.appendChild(fragment);
 }
 
+function renderImpactLines(lines) {
+  lastImpactLines = Array.isArray(lines) ? lines : [];
+  const filterEl = document.getElementById("impactFilter");
+  if (filterEl) {
+    const prev = selectedImpactMatchId;
+    const options = ["all", ...lastImpactLines.map((l) => String(l.matchId || ""))];
+    const uniqueOptions = Array.from(new Set(options));
+    filterEl.innerHTML = uniqueOptions
+      .map((val) => {
+        if (val === "all") return '<option value="all">All matches</option>';
+        const label = lastImpactLines.find((l) => String(l.matchId || "") === val)?.label;
+        return `<option value="${val}">${label || `Match ${val}`}</option>`;
+      })
+      .join("");
+    const nextValue = uniqueOptions.includes(prev) ? prev : "all";
+    filterEl.value = nextValue;
+    selectedImpactMatchId = filterEl.value;
+    filterEl.onchange = (e) => {
+      selectedImpactMatchId = e.target.value || "all";
+      renderImpactLines(lastImpactLines);
+    };
+  }
+
+  const filteredLines =
+    selectedImpactMatchId === "all"
+      ? lastImpactLines
+      : lastImpactLines.filter((l) => String(l.matchId || "") === selectedImpactMatchId);
+
+  const canvas = document.getElementById("playerImpactChart");
+  const emptyState = document.getElementById("impactEmpty");
+  if (!canvas || typeof Chart === "undefined") return;
+
+  const hasData = Array.isArray(filteredLines) && filteredLines.length;
+  if (!hasData) {
+    if (impactChart) {
+      impactChart.destroy();
+      impactChart = null;
+    }
+    canvas.style.display = "none";
+    if (emptyState) emptyState.style.display = "block";
+    return;
+  }
+
+  const endValuesAll = lastImpactLines
+    .map((line) => {
+      const pts = Array.isArray(line.points) ? line.points : [];
+      const last = pts.length ? pts[pts.length - 1] : null;
+      const val = Number(last?.y);
+      return Number.isFinite(val) ? val : null;
+    })
+    .filter((v) => v !== null);
+  const minEnd = endValuesAll.length ? Math.min(...endValuesAll) : 0;
+  const maxEnd = endValuesAll.length ? Math.max(...endValuesAll) : 0;
+
+  const datasets = filteredLines.map((line, idx) => {
+    const pts = Array.isArray(line.points) ? line.points : [];
+    const last = pts.length ? pts[pts.length - 1] : null;
+    const endVal = Number(last?.y);
+    const color = heatColor(endVal, minEnd, maxEnd);
+    const label = line.label || `Match ${idx + 1}`;
+    const points = pts
+      ? line.points.map((pt) => ({
+          x: pt.x,
+          y: pt.y,
+          meta: {
+            winners: pt.winners ?? 0,
+            errors: pt.errors ?? 0,
+          },
+        }))
+      : [];
+    return {
+      label,
+      data: points,
+      borderWidth: 2,
+      borderColor: color,
+      backgroundColor: color,
+      tension: 0.25,
+      fill: false,
+      spanGaps: true,
+      parsing: false,
+      matchMeta: {
+        result: line.result || "",
+        matchType: line.matchType || "",
+        matchLocation: line.matchLocation || "",
+        partner: line.partner?.name || "",
+        opponents: Array.isArray(line.opponents)
+          ? line.opponents.map((op) => op?.name).filter(Boolean)
+          : [],
+      },
+    };
+  });
+
+  canvas.style.display = "block";
+  if (emptyState) emptyState.style.display = "none";
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      y: {
+        suggestedMin: -5,
+        suggestedMax: 5,
+        ticks: { color: "#f5f5f5" },
+        grid: { color: "rgba(255,255,255,0.1)" },
+        title: { display: true, text: "Impact", color: "#f5f5f5" },
+      },
+      x: {
+        type: "linear",
+        ticks: { color: "#f5f5f5" },
+        grid: { display: false },
+        title: { display: true, text: "Point", color: "#f5f5f5" },
+      },
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          title(items) {
+            const ctx = items[0];
+            const datasetLabel = ctx.dataset?.label || "Match";
+            const pointNumber = ctx.raw?.x != null ? `Point ${ctx.raw.x}` : "";
+            return [datasetLabel, pointNumber].filter(Boolean).join(" - ");
+          },
+          label(context) {
+            return `Impact: ${context.formattedValue}`;
+          },
+          afterBody(items) {
+            const ctx = items[0];
+            const meta = ctx.raw?.meta || {};
+            const matchMeta = ctx.dataset?.matchMeta || {};
+            const lines = [
+              `Winners: ${meta.winners ?? 0}`,
+              `Errors: ${meta.errors ?? 0}`,
+            ];
+            if (matchMeta.result) lines.push(`Result: ${matchMeta.result}`);
+            const extra = [matchMeta.matchType, matchMeta.matchLocation].filter(Boolean);
+            if (extra.length) lines.push(extra.join(" · "));
+            if (matchMeta.partner) lines.push(`Partner: ${matchMeta.partner}`);
+            if (matchMeta.opponents?.length) lines.push(`Opponents: ${matchMeta.opponents.join(" / ")}`);
+            return lines;
+          },
+        },
+      },
+    },
+  };
+
+  if (impactChart) {
+    impactChart.data.datasets = datasets;
+    impactChart.update();
+    return;
+  }
+
+  const ctx = canvas.getContext("2d");
+  impactChart = new Chart(ctx, { type: "line", data: { datasets }, options });
+}
+
 function getPlayerIdFromPath() {
   const match = window.location.pathname.match(/\/player\/(\d+)/);
   return match ? Number(match[1]) : null;
@@ -653,6 +828,7 @@ async function loadProfile() {
     renderCalendar(data.calendarDates || []);
     const recent = data.recentMatches || [];
     renderRecent(recent);
+    renderImpactLines(data.impactLines || []);
 
     setStatus(`Loaded profile with ${data.summary?.totalMatches ?? 0} matches.`);
   } catch (err) {

@@ -3,6 +3,7 @@ const errorEl = document.getElementById("error");
 const tableContainer = document.getElementById("tableContainer");
 const minMatchesInput = document.getElementById("minMatchesInput");
 const minMatchesValue = document.getElementById("minMatchesValue");
+const applyFilterBtn = document.getElementById("applyFilterBtn");
 let minMatches = minMatchesInput ? Number(minMatchesInput.value) || 1 : 1;
 let sortState = { key: "winPct", dir: "desc" };
 
@@ -158,18 +159,26 @@ async function loadRankings() {
 
 function setupControls() {
   if (!minMatchesInput) return;
-  const handleChange = () => {
+
+  const applyFilter = () => {
     const next = Math.max(Number(minMatchesInput.value) || 1, 1);
-    if (next === minMatches) {
-      syncMinMatchesLabel();
-      return;
-    }
     minMatches = next;
     syncMinMatchesLabel();
     loadRankings();
   };
+
   syncMinMatchesLabel();
-  minMatchesInput.addEventListener("input", handleChange);
+
+  if (applyFilterBtn) {
+    applyFilterBtn.addEventListener("click", applyFilter);
+  }
+
+  minMatchesInput.addEventListener("keydown", (evt) => {
+    if (evt.key === "Enter") {
+      evt.preventDefault();
+      applyFilter();
+    }
+  });
 }
 
 setupControls();

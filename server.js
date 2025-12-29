@@ -439,6 +439,38 @@ async function fetchLatestSnapshotsForMatches(matchIds) {
   return result;
 }
 
+async function fetchSnapshotsHistoryForMatches(matchIds) {
+  const result = new Map();
+  if (!supabase || !Array.isArray(matchIds) || !matchIds.length) {
+    return result;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('watch_events')
+      .select('match_id, raw, watch_timestamp, received_at')
+      .in('match_id', matchIds)
+      .order('match_id', { ascending: true })
+      .order('watch_timestamp', { ascending: true, nullsLast: true })
+      .order('id', { ascending: true });
+
+    if (error) {
+      console.error('Supabase watch_events history select error:', error);
+      return result;
+    }
+
+    for (const row of data || []) {
+      const key = String(row.match_id);
+      if (!result.has(key)) result.set(key, []);
+      result.get(key).push(row.raw || {});
+    }
+  } catch (e) {
+    console.error('Supabase fetchSnapshotsHistoryForMatches exception:', e);
+  }
+
+  return result;
+}
+
 async function persistMatchStatus(matchId, { status, winnerTeam, finishedAt } = {}) {
   if (!supabase || !status) return;
 
@@ -1620,6 +1652,8 @@ app.get('/api/player/:id/profile', async (req, res) => {
       byOpponent: [],
       byDayOfWeek: [],
     },
+    impactTimeline: [],
+    impactLines: [],
     recentMatches: [],
   };
 
@@ -1762,6 +1796,9 @@ app.get('/api/player/:id/profile', async (req, res) => {
     const calendarCounts = new Map();
     let totalSpent = 0;
     const recentMatches = [];
+    const impactTimeline = [];
+    const impactLines = [];
+    const matchTimestampMap = new Map();
 
     const updateBucket = (
       map,
@@ -1951,6 +1988,7 @@ app.get('/api/player/:id/profile', async (req, res) => {
         snapshot?.watch_timestamp ||
         snapshot?.received_at ||
         null;
+      matchTimestampMap.set(matchId, matchTimestamp);
       const dayLabel = getDayLabel(matchTimestamp);
       updateBucket(
         dayBuckets,
@@ -2030,6 +2068,19 @@ app.get('/api/player/:id/profile', async (req, res) => {
         .map((p) => p.name);
 
       const { score } = summaryFromRaw(raw);
+      const impact = winners - errors;
+      impactTimeline.push({
+        matchId,
+        finishedAt: matchTimestamp,
+        impact,
+        winners,
+        errors,
+        result: isWin ? 'W' : isLoss ? 'L' : null,
+        matchType: typeRow?.name || null,
+        matchLocation: locationRow?.name || null,
+        partner: partner ? { id: partner.id, name: partner.name } : null,
+        opponents: opponents.map((op) => ({ id: op.id, name: op.name })),
+      });
       recentMatches.push({
         matchId,
         partner: partner ? { id: partner.id, name: partner.name } : null,
@@ -2070,6 +2121,13 @@ app.get('/api/player/:id/profile', async (req, res) => {
       return bTime - aTime;
     });
 
+    impactTimeline.sort((a, b) => {
+      const aTime = a.finishedAt ? new Date(a.finishedAt).getTime() : 0;
+      const bTime = b.finishedAt ? new Date(b.finishedAt).getTime() : 0;
+      if (aTime !== bTime) return aTime - bTime;
+      return String(a.matchId || '').localeCompare(String(b.matchId || ''));
+    });
+
     payload.summary = summary;
     payload.breakdowns = {
       byType: finalizeBuckets(typeBuckets),
@@ -2096,6 +2154,72 @@ app.get('/api/player/:id/profile', async (req, res) => {
     payload.calendarDates = Array.from(calendarCounts.entries())
       .map(([date, count]) => ({ date, count }))
       .sort((a, b) => a.date.localeCompare(b.date));
+    const IMPACT_LINES_LIMIT = 50;
+    const impactMatchIds = Array.from(matchTimestampMap.entries())
+      .sort((a, b) => {
+        const aTime = a[1] ? new Date(a[1]).getTime() : 0;
+        const bTime = b[1] ? new Date(b[1]).getTime() : 0;
+        return bTime - aTime;
+      })
+      .slice(0, IMPACT_LINES_LIMIT)
+      .map(([id]) => id);
+
+    const impactHistory = await fetchSnapshotsHistoryForMatches(impactMatchIds);
+
+    for (const matchId of impactMatchIds) {
+      const membership = membershipByMatch.get(matchId);
+      if (!membership) continue;
+      const roster = playersByMatch.get(matchId) || [];
+      const partner = roster.find(
+        (p) => p.team === membership?.team && p.slot !== membership?.slot,
+      );
+      const opponents = roster.filter((p) => p.team !== membership?.team);
+      const meta = matchesById.get(matchId) || {};
+      const winnerTeam = Number(meta.winner_team);
+      const isWin = Number.isInteger(winnerTeam) && winnerTeam === membership?.team;
+      const isLoss =
+        Number.isInteger(winnerTeam) &&
+        winnerTeam !== membership?.team &&
+        (winnerTeam === 1 || winnerTeam === 2);
+      const points = [];
+      const statIndex = teamSlotToIndex(membership?.team, membership?.slot);
+      const snapshots = impactHistory.get(matchId) || [];
+      let pointIdx = 0;
+      for (const raw of snapshots) {
+        const players = Array.isArray(raw.players) ? raw.players : [];
+        if (!players.length || statIndex == null || statIndex >= players.length) continue;
+        const pl = players[statIndex] || { winners: 0, errors: 0 };
+        const val = Number(pl.winners || 0) - Number(pl.errors || 0);
+        const winnersVal = Number(pl.winners || 0);
+        const errorsVal = Number(pl.errors || 0);
+        points.push({
+          x: pointIdx + 1,
+          y: val,
+          winners: winnersVal,
+          errors: errorsVal,
+        });
+        pointIdx += 1;
+      }
+      if (!points.length) continue;
+      impactLines.push({
+        matchId,
+        finishedAt: matchTimestampMap.get(matchId) || null,
+        result: isWin ? 'W' : isLoss ? 'L' : '',
+        matchType: meta.match_type_id ? typeById.get(meta.match_type_id)?.name || null : null,
+        matchLocation: meta.match_location_id
+          ? locationById.get(meta.match_location_id)?.name || null
+          : null,
+        partner: partner ? { id: partner.id, name: partner.name } : null,
+        opponents: opponents.map((op) => ({ id: op.id, name: op.name })),
+        label: matchTimestampMap.get(matchId)
+          ? new Date(matchTimestampMap.get(matchId)).toLocaleDateString()
+          : `Match ${matchId}`,
+        points,
+      });
+    }
+
+    payload.impactTimeline = impactTimeline;
+    payload.impactLines = impactLines;
     payload.recentMatches = recentMatches.slice(0, 10);
 
     return res.json(payload);
