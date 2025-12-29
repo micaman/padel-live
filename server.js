@@ -641,9 +641,42 @@ function formatScoreSummary(m) {
   const parts = [];
   if (setStr) parts.push(`S ${setStr}`);
   if (gameStr) parts.push(`G ${gameStr}`);
-  if (pointStr) parts.push(`P ${pointStr}`);
+    if (pointStr) parts.push(`P ${pointStr}`);
 
   return parts.join('  ');
+}
+
+function computeMvpIndicesFromSnap(snap) {
+  const players = Array.isArray(snap?.players) ? snap.players : [];
+  if (!players.length) return [];
+  const impacts = [];
+  for (let i = 0; i < 4; i++) {
+    const pl = players[i] || { winners: 0, errors: 0 };
+    impacts.push(Number(pl.winners || 0) - Number(pl.errors || 0));
+  }
+  const maxImpact = Math.max(...impacts);
+  if (!Number.isFinite(maxImpact)) return [];
+  return impacts.reduce((acc, val, idx) => {
+    if (val === maxImpact) acc.push(idx);
+    return acc;
+  }, []);
+}
+
+function countSetsPlayed(rawSets) {
+  if (typeof rawSets === 'string') {
+    const parts = rawSets
+      .split('/')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return parts.length || 1;
+  }
+  if (rawSets && typeof rawSets === 'object') {
+    const t1 = Number(rawSets.team1) || 0;
+    const t2 = Number(rawSets.team2) || 0;
+    const total = t1 + t2;
+    return total > 0 ? total : 1;
+  }
+  return 1;
 }
 
 // helper: summary from DB raw payload
@@ -1571,11 +1604,14 @@ app.get('/api/player/:id/profile', async (req, res) => {
       wins: 0,
       losses: 0,
       winPct: null,
+      totalSets: 0,
       totalWinners: 0,
       totalErrors: 0,
+      totalMvp: 0,
       avgWinners: 0,
       avgErrors: 0,
       totalDurationSec: 0,
+      mvpRate: 0,
     },
     breakdowns: {
       byType: [],
@@ -1727,7 +1763,17 @@ app.get('/api/player/:id/profile', async (req, res) => {
     let totalSpent = 0;
     const recentMatches = [];
 
-    const updateBucket = (map, key, label, isWin, isLoss, winners = 0, errors = 0) => {
+    const updateBucket = (
+      map,
+      key,
+      label,
+      isWin,
+      isLoss,
+      winners = 0,
+      errors = 0,
+      sets = 1,
+      isMvp = false,
+    ) => {
       if (!map.has(key)) {
         map.set(key, {
           key,
@@ -1737,6 +1783,8 @@ app.get('/api/player/:id/profile', async (req, res) => {
           losses: 0,
           winners: 0,
           errors: 0,
+          sets: 0,
+          mvp: 0,
         });
       }
       const bucket = map.get(key);
@@ -1745,22 +1793,34 @@ app.get('/api/player/:id/profile', async (req, res) => {
       if (isLoss) bucket.losses += 1;
       bucket.winners += winners;
       bucket.errors += errors;
+      bucket.sets += sets;
+      if (isMvp) bucket.mvp += 1;
     };
 
-    const finalizeBuckets = (map) =>
-      Array.from(map.values())
-        .map((bucket) => ({
-          label: bucket.label,
-          matches: bucket.matches,
-          wins: bucket.wins,
-          losses: bucket.losses,
-          winPct: bucket.matches ? bucket.wins / bucket.matches : null,
-          avgWinners: bucket.matches ? bucket.winners / bucket.matches : 0,
-          avgErrors: bucket.matches ? bucket.errors / bucket.matches : 0,
-          relatedPlayerId:
-            typeof bucket.key === 'string' && bucket.key.startsWith('player:')
-              ? Number(bucket.key.split(':')[1]) || null
-              : null,
+    const finalizeBuckets = (map) => {
+      const rows = Array.from(map.values()).map((bucket) => ({
+        label: bucket.label,
+        matches: bucket.matches,
+        wins: bucket.wins,
+        losses: bucket.losses,
+        winPct: bucket.matches ? bucket.wins / bucket.matches : null,
+        avgWinners: bucket.sets ? bucket.winners / bucket.sets : bucket.matches ? bucket.winners / bucket.matches : 0,
+        avgErrors: bucket.sets ? bucket.errors / bucket.sets : bucket.matches ? bucket.errors / bucket.matches : 0,
+        mvpRate: bucket.matches ? bucket.mvp / bucket.matches : 0,
+        relatedPlayerId:
+          typeof bucket.key === 'string' && bucket.key.startsWith('player:')
+            ? Number(bucket.key.split(':')[1]) || null
+            : null,
+      }));
+
+      const bestWinPct = rows.length
+        ? Math.max(...rows.map((r) => (Number.isFinite(r.winPct) ? r.winPct : -1)))
+        : -1;
+
+      return rows
+        .map((row) => ({
+          ...row,
+          isBest: Number.isFinite(row.winPct) && row.winPct === bestWinPct && bestWinPct >= 0,
         }))
         .sort((a, b) => {
           if (b.matches !== a.matches) return b.matches - a.matches;
@@ -1769,6 +1829,7 @@ app.get('/api/player/:id/profile', async (req, res) => {
           if (bPct !== aPct) return bPct - aPct;
           return a.label.localeCompare(b.label);
         });
+    };
 
     const timeBucketForTimestamp = (ts) => {
       if (!ts) return 'Unknown';
@@ -1790,6 +1851,9 @@ app.get('/api/player/:id/profile', async (req, res) => {
       const playerStats = playersSnapshot[statIndex] || {};
       const winners = Number(playerStats.winners || 0);
       const errors = Number(playerStats.errors || 0);
+      const mvpIndices = computeMvpIndicesFromSnap(raw);
+      const isMvp = Array.isArray(mvpIndices) && mvpIndices.includes(statIndex);
+      const setsPlayed = countSetsPlayed(raw.sets);
       const winnerTeam = Number(meta.winner_team);
       const isWin = Number.isInteger(winnerTeam) && winnerTeam === membership.team;
       const isLoss =
@@ -1798,10 +1862,12 @@ app.get('/api/player/:id/profile', async (req, res) => {
         (winnerTeam === 1 || winnerTeam === 2);
 
       summary.totalMatches += 1;
+      summary.totalSets += setsPlayed;
       if (isWin) summary.wins += 1;
       if (isLoss) summary.losses += 1;
       summary.totalWinners += winners;
       summary.totalErrors += errors;
+      if (isMvp) summary.totalMvp += 1;
       const isFinishedMatch =
         (meta.status && String(meta.status).toLowerCase() === 'finished') ||
         Boolean(meta.finished_at);
@@ -1825,6 +1891,8 @@ app.get('/api/player/:id/profile', async (req, res) => {
         isLoss,
         winners,
         errors,
+        setsPlayed,
+        isMvp,
       );
       updateBucket(
         locationBuckets,
@@ -1834,6 +1902,8 @@ app.get('/api/player/:id/profile', async (req, res) => {
         isLoss,
         winners,
         errors,
+        setsPlayed,
+        isMvp,
       );
 
       const roster = playersByMatch.get(matchId) || [];
@@ -1844,7 +1914,17 @@ app.get('/api/player/:id/profile', async (req, res) => {
         const partnerKey = partner.id
           ? `player:${partner.id}`
           : `partner:${partner.name.toLowerCase()}`;
-        updateBucket(partnerBuckets, partnerKey, partner.name, isWin, isLoss, winners, errors);
+        updateBucket(
+          partnerBuckets,
+          partnerKey,
+          partner.name,
+          isWin,
+          isLoss,
+          winners,
+          errors,
+          setsPlayed,
+          isMvp,
+        );
       }
 
       const opponents = roster.filter((p) => p.team !== membership.team);
@@ -1860,6 +1940,8 @@ app.get('/api/player/:id/profile', async (req, res) => {
           isLoss,
           winners,
           errors,
+          setsPlayed,
+          isMvp,
         );
       }
 
@@ -1870,9 +1952,29 @@ app.get('/api/player/:id/profile', async (req, res) => {
         snapshot?.received_at ||
         null;
       const dayLabel = getDayLabel(matchTimestamp);
-      updateBucket(dayBuckets, `dow:${dayLabel}`, dayLabel, isWin, isLoss, winners, errors);
+      updateBucket(
+        dayBuckets,
+        `dow:${dayLabel}`,
+        dayLabel,
+        isWin,
+        isLoss,
+        winners,
+        errors,
+        setsPlayed,
+        isMvp,
+      );
       const timeLabel = timeBucketForTimestamp(matchTimestamp);
-      updateBucket(timeBuckets, `time:${timeLabel}`, timeLabel, isWin, isLoss, winners, errors);
+      updateBucket(
+        timeBuckets,
+        `time:${timeLabel}`,
+        timeLabel,
+        isWin,
+        isLoss,
+        winners,
+        errors,
+        setsPlayed,
+        isMvp,
+      );
 
       if (meta.match_level) {
         const levelLabel = String(meta.match_level).toUpperCase();
@@ -1884,6 +1986,8 @@ app.get('/api/player/:id/profile', async (req, res) => {
           isLoss,
           winners,
           errors,
+          setsPlayed,
+          isMvp,
         );
       }
 
@@ -1916,6 +2020,15 @@ app.get('/api/player/:id/profile', async (req, res) => {
         }
       }
 
+      const team1Players = roster
+        .filter((p) => p.team === 1)
+        .sort((a, b) => a.slot - b.slot)
+        .map((p) => p.name);
+      const team2Players = roster
+        .filter((p) => p.team === 2)
+        .sort((a, b) => a.slot - b.slot)
+        .map((p) => p.name);
+
       const { score } = summaryFromRaw(raw);
       recentMatches.push({
         matchId,
@@ -1926,18 +2039,28 @@ app.get('/api/player/:id/profile', async (req, res) => {
         matchType: typeRow?.name || null,
         matchLocation: locationRow?.name || null,
         score: score || null,
+        team1Name: team1Players.length ? team1Players.join(' / ') : 'Team 1',
+        team2Name: team2Players.length ? team2Players.join(' / ') : 'Team 2',
+        team1Players,
+        team2Players,
+        lastSnapshot: raw,
+        status: meta.status || null,
+        winnerTeam: Number.isInteger(winnerTeam) ? winnerTeam : null,
       });
     }
 
     if (summary.totalMatches) {
       summary.winPct = summary.wins / summary.totalMatches;
-      summary.avgWinners = summary.totalWinners / summary.totalMatches;
-      summary.avgErrors = summary.totalErrors / summary.totalMatches;
+      const setDenominator = summary.totalSets || summary.totalMatches || 1;
+      summary.avgWinners = summary.totalWinners / setDenominator;
+      summary.avgErrors = summary.totalErrors / setDenominator;
+      summary.mvpRate = summary.totalMvp / summary.totalMatches;
     } else {
       summary.winPct = null;
       summary.avgWinners = 0;
       summary.avgErrors = 0;
       summary.totalDurationSec = summary.totalDurationSec || 0;
+      summary.mvpRate = 0;
     }
     summary.totalSpent = totalSpent;
 
@@ -1978,6 +2101,182 @@ app.get('/api/player/:id/profile', async (req, res) => {
     return res.json(payload);
   } catch (e) {
     console.error('/api/player/:id/profile exception:', e);
+    return res.status(500).json({ error: 'Unexpected error' });
+  }
+});
+
+// Player rankings/comparison
+app.get('/api/players/rankings', async (req, res) => {
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 1000);
+  const minMatches = Math.max(parseInt(req.query.minMatches, 10) || 1, 1);
+
+  try {
+    const { data: memberships, error: membershipsErr } = await supabase
+      .from('match_players')
+      .select('match_id, player_id, team, slot');
+
+    if (membershipsErr) {
+      console.error('Supabase match_players select error (rankings):', membershipsErr);
+      return res.status(500).json({ error: 'Failed to load memberships' });
+    }
+
+    if (!memberships || !memberships.length) {
+      return res.json({ items: [] });
+    }
+
+    const playerIds = Array.from(new Set((memberships || []).map((m) => m.player_id)));
+    const { data: players, error: playersErr } = await supabase
+      .from('players')
+      .select('id, name')
+      .in('id', playerIds);
+
+    if (playersErr) {
+      console.error('Supabase players select error (rankings):', playersErr);
+      return res.status(500).json({ error: 'Failed to load players' });
+    }
+
+    const playerMap = new Map((players || []).map((p) => [String(p.id), p]));
+    if (!playerMap.size) {
+      return res.json({ items: [] });
+    }
+
+    const matchIds = Array.from(new Set((memberships || []).map((m) => String(m.match_id))));
+    const membershipByMatch = new Map();
+    for (const row of memberships || []) {
+      const key = String(row.match_id);
+      if (!membershipByMatch.has(key)) {
+        membershipByMatch.set(key, []);
+      }
+      membershipByMatch.get(key).push(row);
+    }
+
+    const [{ data: matchesMeta, error: matchesErr }, snapshotsMap] = await Promise.all([
+      supabase
+        .from('matches')
+        .select('match_id, winner_team, status, finished_at')
+        .in('match_id', matchIds),
+      fetchLatestSnapshotsForMatches(matchIds),
+    ]);
+
+    if (matchesErr) {
+      console.error('Supabase matches select error (rankings):', matchesErr);
+      return res.status(500).json({ error: 'Failed to load matches' });
+    }
+
+    const matchesById = new Map();
+    for (const row of matchesMeta || []) {
+      matchesById.set(String(row.match_id), row);
+    }
+
+    const aggregates = new Map();
+
+    for (const [matchId, roster] of membershipByMatch.entries()) {
+      const meta = matchesById.get(matchId) || {};
+      const snapshot = snapshotsMap.get(matchId);
+      const raw = snapshot?.raw || {};
+      const playersSnapshot = Array.isArray(raw.players) ? raw.players : [];
+      const setsPlayed = countSetsPlayed(raw.sets);
+      const winnerTeam = Number(meta.winner_team);
+      const isFinishedMatch =
+        (meta.status && String(meta.status).toLowerCase() === 'finished') ||
+        Boolean(meta.finished_at);
+      const mvpIndices = computeMvpIndicesFromSnap(raw);
+
+      for (const entry of roster) {
+        const playerId = String(entry.player_id);
+        const base = playerMap.get(playerId);
+        if (!base) continue;
+        const statIndex = teamSlotToIndex(entry.team, entry.slot);
+        const playerStats = playersSnapshot[statIndex] || {};
+        const winners = Number(playerStats.winners || 0);
+        const errors = Number(playerStats.errors || 0);
+        const isMvp = Array.isArray(mvpIndices) && mvpIndices.includes(statIndex);
+        const isWin = Number.isInteger(winnerTeam) && winnerTeam === entry.team;
+        const isLoss =
+          Number.isInteger(winnerTeam) &&
+          winnerTeam !== entry.team &&
+          (winnerTeam === 1 || winnerTeam === 2);
+
+        if (!aggregates.has(playerId)) {
+          aggregates.set(playerId, {
+            id: base.id,
+            name: base.name || `Player #${base.id}`,
+            matches: 0,
+            wins: 0,
+            losses: 0,
+            totalWinners: 0,
+            totalErrors: 0,
+            totalSets: 0,
+            finishedMatches: 0,
+            mvpCount: 0,
+          });
+        }
+
+        const agg = aggregates.get(playerId);
+        agg.matches += 1;
+        if (isWin) agg.wins += 1;
+        if (isLoss) agg.losses += 1;
+        agg.totalWinners += winners;
+        agg.totalErrors += errors;
+        agg.totalSets += setsPlayed;
+        if (isFinishedMatch) agg.finishedMatches += 1;
+        if (isMvp) agg.mvpCount += 1;
+      }
+    }
+
+    const items = Array.from(aggregates.values())
+      .filter((row) => row.matches >= minMatches)
+      .map((row) => {
+        const winPct = row.matches ? row.wins / row.matches : null;
+        const denom = row.totalSets || row.matches || 1;
+        const mvpRate = row.matches ? row.mvpCount / row.matches : 0;
+        return {
+          id: row.id,
+          name: row.name,
+          matches: row.matches,
+          finishedMatches: row.finishedMatches,
+          wins: row.wins,
+          losses: row.losses,
+          winPct,
+          avgWinners: row.totalWinners / denom,
+          avgErrors: row.totalErrors / denom,
+          totalWinners: row.totalWinners,
+          totalErrors: row.totalErrors,
+          totalSets: row.totalSets,
+          mvpCount: row.mvpCount,
+          mvpRate,
+        };
+      })
+      .sort((a, b) => {
+        const aPct = a.winPct ?? -1;
+        const bPct = b.winPct ?? -1;
+        if (bPct !== aPct) return bPct - aPct;
+        if (b.mvpRate !== a.mvpRate) return b.mvpRate - a.mvpRate;
+        if (b.matches !== a.matches) return b.matches - a.matches;
+        const aWinners = a.avgWinners ?? -1;
+        const bWinners = b.avgWinners ?? -1;
+        if (bWinners !== aWinners) return bWinners - aWinners;
+        return a.name.localeCompare(b.name);
+      })
+      .slice(0, limit);
+
+    const bestMvpRate =
+      items.length && items.some((it) => Number.isFinite(it.mvpRate))
+        ? Math.max(...items.map((it) => it.mvpRate || 0))
+        : 0;
+
+    const flagged = items.map((item) => ({
+      ...item,
+      isMvpLeader: bestMvpRate > 0 && item.mvpRate === bestMvpRate,
+    }));
+
+    return res.json({ items: flagged, limit, minMatches, bestMvpRate });
+  } catch (e) {
+    console.error('/api/players/rankings exception:', e);
     return res.status(500).json({ error: 'Unexpected error' });
   }
 });
@@ -2057,6 +2356,11 @@ app.get('/match/:id', (req, res) => {
 // Player profile page
 app.get('/player/:id', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'player.html'));
+});
+
+// Player rankings page
+app.get('/players', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'players.html'));
 });
 
 const port = process.env.PORT || 10000;

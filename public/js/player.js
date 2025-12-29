@@ -1,3 +1,10 @@
+import {
+  serverPlayerIndex,
+  serverTeamFromServerField,
+  shouldHideSetForFinishedMatch,
+  splitTeamPlayers
+} from "./shared.js";
+
 const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("error");
 const playerNameEl = document.getElementById("playerName");
@@ -11,6 +18,7 @@ const summaryEls = {
   winPct: document.getElementById("summaryWinPct"),
   avgWinners: document.getElementById("summaryAvgWinners"),
   avgErrors: document.getElementById("summaryAvgErrors"),
+  mvpPct: document.getElementById("summaryMvpPct"),
   timePlaying: document.getElementById("summaryTimePlaying"),
   totalSpent: document.getElementById("summarySpent")
 };
@@ -34,6 +42,7 @@ const financeEls = {
 const tableSortState = new Map();
 
 const calendarContainer = document.getElementById("matchCalendar");
+const MOBILE_BREAKPOINT = 520;
 
 function setStatus(message) {
   if (statusEl) statusEl.textContent = message || "";
@@ -104,6 +113,66 @@ function formatCurrency(value) {
   return `€${num.toFixed(2)}`;
 }
 
+function parseSets(sets) {
+  if (typeof sets === "string") {
+    return sets
+      .split("/")
+      .map((s) => {
+        const m = s.trim().match(/(\d+)\s*-\s*(\d+)/);
+        return m ? { t1: m[1], t2: m[2] } : null;
+      })
+      .filter(Boolean);
+  }
+  if (sets && typeof sets === "object") {
+    const t1 = Number(sets.team1 ?? sets.t1 ?? sets[1]);
+    const t2 = Number(sets.team2 ?? sets.t2 ?? sets[2]);
+    if (Number.isFinite(t1) && Number.isFinite(t2)) {
+      return [{ t1, t2 }];
+    }
+  }
+  return [];
+}
+
+function computeMvpIndicesFromSnap(snap) {
+  const players = Array.isArray(snap?.players) ? snap.players : [];
+  if (!players.length) return [];
+  const impacts = [];
+  for (let i = 0; i < 4; i++) {
+    const pl = players[i] || { winners: 0, errors: 0 };
+    impacts.push(Number(pl.winners || 0) - Number(pl.errors || 0));
+  }
+  const maxImpact = Math.max(...impacts);
+  if (!Number.isFinite(maxImpact)) return [];
+  return impacts.reduce((acc, val, idx) => {
+    if (val === maxImpact) acc.push(idx);
+    return acc;
+  }, []);
+}
+
+function formatCardName(name) {
+  const safeName = name || "";
+  if (window.innerWidth <= MOBILE_BREAKPOINT) {
+    const parts = safeName.trim().split(/\s+/);
+    if (parts.length > 1) {
+      const initial = parts[0].charAt(0);
+      const rest = parts.slice(1).join(" ");
+      return `${initial}. ${rest}`.toUpperCase();
+    }
+  }
+  return safeName.toUpperCase();
+}
+
+function normalizeTeamPlayers(players, fallbackLabel) {
+  if (Array.isArray(players) && players.length) {
+    const cleaned = players.filter(Boolean).slice(0, 2);
+    while (cleaned.length < 2) {
+      cleaned.push(`${fallbackLabel} P${cleaned.length + 1}`);
+    }
+    return cleaned;
+  }
+  return splitTeamPlayers(fallbackLabel, fallbackLabel);
+}
+
 function formatNameLink(entry) {
   if (!entry || !entry.name) return "-";
   if (entry.id) {
@@ -124,6 +193,9 @@ function renderSummary(data) {
   summaryEls.winPct.textContent = formatPercent(data.winPct);
   summaryEls.avgWinners.textContent = formatNumber(data.avgWinners ?? 0);
   summaryEls.avgErrors.textContent = formatNumber(data.avgErrors ?? 0);
+  if (summaryEls.mvpPct) {
+    summaryEls.mvpPct.textContent = formatPercent(data.mvpRate);
+  }
   if (summaryEls.timePlaying) {
     summaryEls.timePlaying.textContent = formatDurationLabel(data.totalDurationSec ?? 0);
   }
@@ -181,7 +253,7 @@ function renderBreakdown(container, rows, opts = {}) {
             .map((col) => {
               const indicator =
                 sortState.key === col.key ? `<span class="sort-indicator">${sortState.dir === "asc" ? "▲" : "▼"}</span>` : "";
-              const classes = ["number", col.sortable ? "sortable" : null].filter(Boolean).join(" ");
+          const classes = ["number", col.sortable ? "sortable" : null].filter(Boolean).join(" ");
               return `<th class="${classes}" ${col.sortable ? `data-sort-key="${col.key}"` : ""}>${col.label}${indicator}</th>`;
             })
             .join("")}
@@ -190,17 +262,20 @@ function renderBreakdown(container, rows, opts = {}) {
       <tbody>
         ${sortedRows
           .map((row) => {
-            const label = allowLinks && row.relatedPlayerId
+            const baseLabel = allowLinks && row.relatedPlayerId
               ? `<a class="player-link" href="/player/${row.relatedPlayerId}">${escapeHtml(row.label)}</a>`
               : escapeHtml(row.label);
+            const label = row.isBest
+              ? `${baseLabel} <span class="mvp-badge mvp-badge--inline" title="Top win %"></span>`
+              : baseLabel;
             return `
               <tr>
                 <td>${label}</td>
                 <td class="number ${cellClassFor("matches", row.matches)}">${row.matches}</td>
                 <td class="number ${cellClassFor("wins", row.wins)}">${row.wins}</td>
                 <td class="number ${cellClassFor("winPct", row.winPct)}">${formatPercent(row.winPct)}</td>
-                <td class="number ${cellClassFor("avgWinners", row.avgWinners)}">${formatNumber(row.avgWinners ?? 0)}</td>
-                <td class="number ${cellClassFor("avgErrors", row.avgErrors)}">${formatNumber(row.avgErrors ?? 0)}</td>
+        <td class="number ${cellClassFor("avgWinners", row.avgWinners)}">${formatNumber(row.avgWinners ?? 0)}</td>
+        <td class="number ${cellClassFor("avgErrors", row.avgErrors)}">${formatNumber(row.avgErrors ?? 0)}</td>
               </tr>
             `;
           })
@@ -372,56 +447,159 @@ function renderCalendar(entries) {
   `;
 }
 
+function buildScoreboardElement(match) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "scoreboard-wrapper";
+  wrapper.innerHTML = `
+    <div class="scoreboard">
+      <div class="sb-icon"><img src="https://i.imgur.com/GLjjux7.png" width="32" height="32" alt=""></div>
+
+      <div class="sb-teams">
+        <div class="sb-row">
+          <div class="team-name" data-team="1">
+            <span class="player-chip" data-player-index="0">
+              <span class="server-dot" style="display:none"></span>
+              <span class="player-name"></span>
+              <span class="mvp-badge" aria-label="MVP" title="Match MVP"></span>
+            </span>
+            <span class="player-sep">/</span>
+            <span class="player-chip" data-player-index="1">
+              <span class="server-dot" style="display:none"></span>
+              <span class="player-name"></span>
+              <span class="mvp-badge" aria-label="MVP" title="Match MVP"></span>
+            </span>
+          </div>
+        </div>
+        <div class="sb-row">
+          <div class="team-name" data-team="2">
+            <span class="player-chip" data-player-index="2">
+              <span class="server-dot" style="display:none"></span>
+              <span class="player-name"></span>
+              <span class="mvp-badge" aria-label="MVP" title="Match MVP"></span>
+            </span>
+            <span class="player-sep">/</span>
+            <span class="player-chip" data-player-index="3">
+              <span class="server-dot" style="display:none"></span>
+              <span class="player-name"></span>
+              <span class="mvp-badge" aria-label="MVP" title="Match MVP"></span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-sets">
+        <div class="sb-set-col"><div>-</div><div>-</div></div>
+        <div class="sb-set-col"><div>-</div><div>-</div></div>
+        <div class="sb-set-col"><div>-</div><div>-</div></div>
+      </div>
+
+      <div class="sb-points">
+        <div class="sb-point-top">0</div>
+        <div class="sb-point-bottom">0</div>
+      </div>
+    </div>
+  `;
+
+  const snap = match?.lastSnapshot || {};
+  const pts = snap.points || {};
+  const sets = parseSets(snap.sets);
+  const team1Players = normalizeTeamPlayers(match?.team1Players, match?.team1Name || "Team 1");
+  const team2Players = normalizeTeamPlayers(match?.team2Players, match?.team2Name || "Team 2");
+  const playerNames = [...team1Players, ...team2Players].map(formatCardName);
+
+  playerNames.forEach((name, idx) => {
+    const nameEl = wrapper.querySelector(
+      `.player-chip[data-player-index="${idx}"] .player-name`
+    );
+    if (nameEl) nameEl.textContent = name;
+  });
+
+  const setCols = wrapper.querySelectorAll(".sb-set-col");
+  setCols.forEach((col) => {
+    col.style.display = "";
+    col.children[0].textContent = "-";
+    col.children[1].textContent = "-";
+  });
+
+  sets.forEach((s, i) => {
+    if (!setCols[i] || !s) return;
+    setCols[i].children[0].textContent = s.t1;
+    setCols[i].children[1].textContent = s.t2;
+  });
+
+  setCols.forEach((col, i) => {
+    const score = sets[i];
+    const top = score?.t1 ?? col.children[0].textContent;
+    const bottom = score?.t2 ?? col.children[1].textContent;
+    if (shouldHideSetForFinishedMatch(match, top, bottom)) {
+      col.style.display = "none";
+    }
+  });
+
+  const pointTop = wrapper.querySelector(".sb-point-top");
+  const pointBottom = wrapper.querySelector(".sb-point-bottom");
+  if (pointTop) pointTop.textContent = pts.team1 ?? "0";
+  if (pointBottom) pointBottom.textContent = pts.team2 ?? "0";
+
+  const serverIdx = serverPlayerIndex(snap.server);
+  const serverTeam = serverTeamFromServerField(snap.server);
+  const isFinished =
+    (match.status && String(match.status).toLowerCase() === "finished") ||
+    Boolean(match.finishedAt || snap.finishedAt);
+  const dots = wrapper.querySelectorAll(".player-chip .server-dot");
+  dots.forEach((dot) => {
+    dot.style.display = "none";
+  });
+  if (!isFinished && serverIdx != null) {
+    const dot = wrapper.querySelector(
+      `.player-chip[data-player-index="${serverIdx}"] .server-dot`
+    );
+    if (dot) dot.style.display = "inline-block";
+  } else if (!isFinished && (serverTeam === 1 || serverTeam === 2)) {
+    const fallbackIdx = serverTeam === 1 ? 0 : 2;
+    const dot = wrapper.querySelector(
+      `.player-chip[data-player-index="${fallbackIdx}"] .server-dot`
+    );
+    if (dot) dot.style.display = "inline-block";
+  }
+
+  const mvpIndices = isFinished ? computeMvpIndicesFromSnap(snap) : [];
+  const chips = wrapper.querySelectorAll(".player-chip");
+  chips.forEach((chip) => chip.classList.remove("is-mvp"));
+  mvpIndices.forEach((idx) => {
+    const chip = wrapper.querySelector(`.player-chip[data-player-index="${idx}"]`);
+    if (chip) chip.classList.add("is-mvp");
+  });
+
+  return wrapper;
+}
+
+function buildRecentCard(match) {
+  const card = document.createElement("div");
+  card.className = "recent-card recent-card--scoreboard";
+  const linkEl = document.createElement(match.matchId ? "a" : "div");
+  linkEl.className = "recent-card-link";
+  if (match.matchId) {
+    linkEl.href = `/match/${encodeURIComponent(match.matchId)}`;
+  }
+  linkEl.appendChild(buildScoreboardElement(match));
+  card.appendChild(linkEl);
+  return card;
+}
+
 function renderRecent(matches) {
   if (!recentMatchesEl) return;
+  recentMatchesEl.innerHTML = "";
   if (!matches || !matches.length) {
     recentMatchesEl.innerHTML = '<div class="empty-state">No matches recorded yet.</div>';
     return;
   }
 
-  const items = matches
-    .slice(0, 3)
-    .map((match) => {
-      const partnerLabel = match.partner ? formatNameLink(match.partner) : "-";
-      const opponentsLabel =
-        match.opponents && match.opponents.length
-          ? match.opponents.map(formatNameLink).join(" / ")
-          : "-";
-      const context = [match.matchType, match.matchLocation].filter(Boolean).join(" | ") || "-";
-      const scorePart = match.score ? ` | ${escapeHtml(match.score)}` : "";
-      const resultText = `${escapeHtml(match.result || "-")}${scorePart}`;
-      const matchUrl = match.matchId ? `/match/${encodeURIComponent(match.matchId)}` : null;
-      const resultContent = matchUrl
-        ? `<a class="recent-result-link" href="${matchUrl}">${resultText}</a>`
-        : resultText;
-      return `
-        <div class="recent-card">
-          <div>
-            <strong>Result</strong>
-            <span>${resultContent}</span>
-          </div>
-          <div>
-            <strong>Partner</strong>
-            <span>${partnerLabel}</span>
-          </div>
-          <div>
-            <strong>Opponents</strong>
-            <span>${opponentsLabel}</span>
-          </div>
-          <div>
-            <strong>When</strong>
-            <span>${formatDate(match.finishedAt)}</span>
-          </div>
-          <div>
-            <strong>Context</strong>
-            <span>${escapeHtml(context)}</span>
-          </div>
-        </div>
-      `;
-    })
-    .join("");
-
-  recentMatchesEl.innerHTML = items;
+  const fragment = document.createDocumentFragment();
+  matches.slice(0, 3).forEach((match) => {
+    fragment.appendChild(buildRecentCard(match));
+  });
+  recentMatchesEl.appendChild(fragment);
 }
 
 function getPlayerIdFromPath() {

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Player Rankings</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/css/scoreboard.css">
+  <style>
+    :root {
+      --bg: #111217;
+      --card-bg: #181a25;
+      --card-border: #26293a;
+      --accent: #f7c948;
+      --text-muted: rgba(255, 255, 255, 0.7);
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      background: radial-gradient(circle at top left, #303144, #111217 60%);
+      font-family: system-ui, -apple-system, sans-serif;
+      color: #f5f5f5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1080px;
+    }
+
+    .page-header {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .page-header h1 {
+      margin: 0;
+      font-size: 26px;
+      letter-spacing: 0.04em;
+    }
+
+    .subtitle {
+      margin: 0;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .back-link {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .status {
+      font-size: 12px;
+      margin: 8px 0 0;
+      color: var(--text-muted);
+    }
+
+    .error {
+      margin: 8px 0;
+      color: #ffb2b2;
+      font-size: 13px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      color: #f5f5f5;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 10px 8px;
+      text-align: left;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    th {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+
+    tbody tr:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .player-link {
+      color: #f5f5f5;
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .player-link:hover {
+      color: var(--accent);
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(247, 201, 72, 0.12);
+      color: #f7c948;
+      font-size: 12px;
+    }
+
+    .pill--accent {
+      background: #f7c948;
+      color: #111217;
+      font-weight: 700;
+    }
+
+    .mvp-badge--leader {
+      display: inline-flex !important;
+      vertical-align: middle;
+      margin-left: 6px;
+    }
+
+    .sortable {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .sort-indicator {
+      font-size: 10px;
+      opacity: 0.7;
+      margin-left: 4px;
+    }
+
+    .empty-state {
+      padding: 16px;
+      text-align: center;
+      color: var(--text-muted);
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 8px 0 12px;
+      flex-wrap: wrap;
+    }
+
+    .control-label {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    input[type="range"] {
+      accent-color: var(--accent);
+    }
+
+    @media (max-width: 720px) {
+      th:nth-child(4),
+      td:nth-child(4),
+      th:nth-child(5),
+      td:nth-child(5) {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a class="back-link" href="/">← Back to matches</a>
+    <div class="page-header">
+      <h1>Player Rankings</h1>
+      <p class="subtitle">Compare all tracked players side by side.</p>
+    </div>
+
+    <div id="error" class="error"></div>
+    <div id="status" class="status"></div>
+
+    <div class="controls">
+      <label for="minMatchesInput" class="control-label">
+        Minimum matches: <strong id="minMatchesValue">1</strong>
+      </label>
+      <input type="range" id="minMatchesInput" min="1" max="50" value="1" />
+    </div>
+
+    <div class="card">
+      <div id="tableContainer" class="table-container"></div>
+    </div>
+  </div>
+
+  <script src="/js/players.js"></script>
+</body>
+</html>

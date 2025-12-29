@@ -87,6 +87,7 @@
 .player-name {
   display: inline-flex;
   align-items: center;
+  color: black;
 }
 
 .mvp-badge {

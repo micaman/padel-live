@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <title>Player Profile</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/css/scoreboard.css">
   <style>
     :root {
       --bg: #111217;
@@ -151,7 +152,7 @@
       border-radius: 6px;
       padding: 10px 12px;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      grid-template-columns: 1fr;
       gap: 8px;
     }
 
@@ -167,14 +168,65 @@
       font-size: 13px;
     }
 
-    .recent-result-link {
-      color: var(--accent);
-      font-weight: 600;
+    .recent-card-link {
+      display: block;
       text-decoration: none;
+      color: inherit;
     }
 
-    .recent-result-link:hover {
-      text-decoration: underline;
+    .recent-card--scoreboard {
+      padding: 0;
+      border: none;
+      background: transparent;
+    }
+
+    .recent-card--scoreboard .scoreboard-wrapper {
+      width: 100%;
+    }
+
+    .recent-card--scoreboard .scoreboard {
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+      transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+    }
+
+    .recent-card--scoreboard .recent-card-link:hover .scoreboard {
+      transform: translateY(-1px);
+      border-color: var(--accent);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.6);
+    }
+
+    .recent-scoreboard {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 6px;
+    }
+
+    .recent-team-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 8px;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .recent-score {
+      text-align: center;
+      font-weight: 700;
+      font-size: 16px;
+      padding: 6px 0;
+    }
+
+    .recent-meta {
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .mvp-badge--inline {
+      display: inline-flex !important;
+      vertical-align: middle;
+      margin-left: 6px;
     }
 
     .player-link {
@@ -347,6 +399,7 @@
       <a href="/" class="back-link">← Back to matches</a>
       <h1 id="playerName">Player</h1>
       <p id="playerSubtitle" class="subtitle"></p>
+      <a href="/players" class="back-link">View all player rankings →</a>
     </header>
 
     <div id="status" class="status"></div>
@@ -372,6 +425,11 @@
         <div class="icon">%</div>
         <div class="label">Win %</div>
         <div class="value" id="summaryWinPct">0%</div>
+      </div>
+      <div class="summary-card">
+        <div class="icon">MVP</div>
+        <div class="label">MVP %</div>
+        <div class="value" id="summaryMvpPct">0%</div>
       </div>
       <div class="summary-card">
         <div class="icon">W+</div>
