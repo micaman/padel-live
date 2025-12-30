@@ -94,6 +94,7 @@ function renderTable(items) {
           <td>${mvpRateLabel}</td>
           <td>${formatNumber(row.avgWinners ?? 0)}</td>
           <td>${formatNumber(row.avgErrors ?? 0)}</td>
+          <td>${formatNumber(row.avgImpact ?? 0)}</td>
         </tr>
       `;
     })
@@ -110,6 +111,7 @@ function renderTable(items) {
           <th class="sortable" data-key="mvpRate">MVP / match <span class="sort-indicator"></span></th>
           <th class="sortable" data-key="avgWinners">Avg W / set <span class="sort-indicator"></span></th>
           <th class="sortable" data-key="avgErrors">Avg E / set <span class="sort-indicator"></span></th>
+          <th class="sortable" data-key="avgImpact">Avg impact <span class="sort-indicator"></span></th>
         </tr>
       </thead>
       <tbody>

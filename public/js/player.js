@@ -13,6 +13,7 @@ const recentMatchesEl = document.getElementById("recentMatches");
 
 const summaryEls = {
   matches: document.getElementById("summaryMatches"),
+  sets: document.getElementById("summarySets"),
   wins: document.getElementById("summaryWins"),
   losses: document.getElementById("summaryLosses"),
   winPct: document.getElementById("summaryWinPct"),
@@ -45,7 +46,7 @@ const calendarContainer = document.getElementById("matchCalendar");
 const MOBILE_BREAKPOINT = 520;
 let impactChart = null;
 let lastImpactLines = [];
-let selectedImpactMatchId = "all";
+let selectedImpactLineId = "all";
 
 function heatColor(value, min, max) {
   if (!Number.isFinite(value)) return "hsl(200, 50%, 60%)";
@@ -207,6 +208,7 @@ function pickExtremeList() {
 function renderSummary(data) {
   if (!summaryEls.matches) return;
   summaryEls.matches.textContent = data.totalMatches ?? 0;
+  if (summaryEls.sets) summaryEls.sets.textContent = data.totalSets ?? 0;
   summaryEls.wins.textContent = data.wins ?? 0;
   summaryEls.losses.textContent = data.losses ?? 0;
   summaryEls.winPct.textContent = formatPercent(data.winPct);
@@ -625,29 +627,34 @@ function renderImpactLines(lines) {
   lastImpactLines = Array.isArray(lines) ? lines : [];
   const filterEl = document.getElementById("impactFilter");
   if (filterEl) {
-    const prev = selectedImpactMatchId;
-    const options = ["all", ...lastImpactLines.map((l) => String(l.matchId || ""))];
+    const prev = selectedImpactLineId;
+    const options = ["all", ...lastImpactLines.map((l) => String(l.lineId || l.matchId || ""))];
     const uniqueOptions = Array.from(new Set(options));
     filterEl.innerHTML = uniqueOptions
       .map((val) => {
-        if (val === "all") return '<option value="all">All matches</option>';
-        const label = lastImpactLines.find((l) => String(l.matchId || "") === val)?.label;
-        return `<option value="${val}">${label || `Match ${val}`}</option>`;
+        if (val === "all") return '<option value="all">Last 20 sets</option>';
+        const label = lastImpactLines.find((l) => {
+          const key = String(l.lineId || l.matchId || "");
+          return key === val;
+        })?.label;
+        return `<option value="${val}">${label || `Line ${val}`}</option>`;
       })
       .join("");
     const nextValue = uniqueOptions.includes(prev) ? prev : "all";
     filterEl.value = nextValue;
-    selectedImpactMatchId = filterEl.value;
+    selectedImpactLineId = filterEl.value;
     filterEl.onchange = (e) => {
-      selectedImpactMatchId = e.target.value || "all";
+      selectedImpactLineId = e.target.value || "all";
       renderImpactLines(lastImpactLines);
     };
   }
 
   const filteredLines =
-    selectedImpactMatchId === "all"
+    selectedImpactLineId === "all"
       ? lastImpactLines
-      : lastImpactLines.filter((l) => String(l.matchId || "") === selectedImpactMatchId);
+      : lastImpactLines.filter(
+          (l) => String(l.lineId || l.matchId || "") === selectedImpactLineId
+        );
 
   const canvas = document.getElementById("playerImpactChart");
   const emptyState = document.getElementById("impactEmpty");
@@ -667,9 +674,12 @@ function renderImpactLines(lines) {
   const endValuesAll = lastImpactLines
     .map((line) => {
       const pts = Array.isArray(line.points) ? line.points : [];
-      const last = pts.length ? pts[pts.length - 1] : null;
-      const val = Number(last?.y);
-      return Number.isFinite(val) ? val : null;
+      if (!pts.length) return null;
+      const firstVal = Number(pts[0]?.y);
+      const lastVal = Number(pts[pts.length - 1]?.y);
+      if (!Number.isFinite(lastVal)) return null;
+      const baseline = Number.isFinite(firstVal) ? firstVal : 0;
+      return lastVal - baseline;
     })
     .filter((v) => v !== null);
   const minEnd = endValuesAll.length ? Math.min(...endValuesAll) : 0;
@@ -677,11 +687,14 @@ function renderImpactLines(lines) {
 
   const datasets = filteredLines.map((line, idx) => {
     const pts = Array.isArray(line.points) ? line.points : [];
+    const firstVal = Number(pts[0]?.y);
     const last = pts.length ? pts[pts.length - 1] : null;
-    const endVal = Number(last?.y);
+    const endValRaw = Number(last?.y);
+    const baseline = Number.isFinite(firstVal) ? firstVal : 0;
+    const endVal = Number.isFinite(endValRaw) ? endValRaw - baseline : null;
     const color = heatColor(endVal, minEnd, maxEnd);
     const label = line.label || `Match ${idx + 1}`;
-    const points = pts
+    const rawPoints = pts
       ? line.points.map((pt) => ({
           x: pt.x,
           y: pt.y,
@@ -691,6 +704,10 @@ function renderImpactLines(lines) {
           },
         }))
       : [];
+    const points = rawPoints.map((pt) => ({
+      ...pt,
+      y: Number.isFinite(pt.y) ? Number(pt.y) - baseline : pt.y,
+    }));
     return {
       label,
       data: points,
@@ -706,6 +723,8 @@ function renderImpactLines(lines) {
         matchType: line.matchType || "",
         matchLocation: line.matchLocation || "",
         partner: line.partner?.name || "",
+        setNumber: line.setNumber || null,
+        matchId: line.matchId || null,
         opponents: Array.isArray(line.opponents)
           ? line.opponents.map((op) => op?.name).filter(Boolean)
           : [],
@@ -721,8 +740,8 @@ function renderImpactLines(lines) {
     maintainAspectRatio: false,
     scales: {
       y: {
-        suggestedMin: -5,
-        suggestedMax: 5,
+        min: -20,
+        max: 10,
         ticks: { color: "#f5f5f5" },
         grid: { color: "rgba(255,255,255,0.1)" },
         title: { display: true, text: "Impact", color: "#f5f5f5" },
@@ -751,7 +770,11 @@ function renderImpactLines(lines) {
             const ctx = items[0];
             const meta = ctx.raw?.meta || {};
             const matchMeta = ctx.dataset?.matchMeta || {};
+            const pre = [];
+            if (matchMeta.setNumber != null) pre.push(`Set ${matchMeta.setNumber}`);
+            if (matchMeta.matchId != null) pre.push(`Match ${matchMeta.matchId}`);
             const lines = [
+              ...pre,
               `Winners: ${meta.winners ?? 0}`,
               `Errors: ${meta.errors ?? 0}`,
             ];

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Padel RPG Simulator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #0f1116;
+      --panel: #181b24;
+      --card: #1f2430;
+      --accent: #58d68d;
+      --accent-2: #6aa7ff;
+      --muted: #9aa3b5;
+      --border: #2b3241;
+      --danger: #f48fb1;
+      --warning: #f9d65c;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 20%, rgba(90,123,255,0.12), transparent 25%),
+                  radial-gradient(circle at 80% 10%, rgba(88,214,141,0.12), transparent 25%),
+                  var(--bg);
+      color: #e6ebff;
+      min-height: 100vh;
+    }
+
+    header {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      font-size: 20px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin: 0;
+    }
+
+    .pill {
+      background: #222838;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .controls {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    select, input, button {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: #e6ebff;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 14px;
+    }
+
+    button {
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--accent), #53c7f0);
+      color: #0b0d11;
+      font-weight: 700;
+      border: none;
+    }
+
+    button.secondary {
+      background: #20283a;
+      color: #dbe3ff;
+      border: 1px solid var(--border);
+      font-weight: 600;
+    }
+
+    .status-line {
+      font-size: 13px;
+      color: var(--muted);
+      min-height: 18px;
+    }
+
+    .status-line strong { color: var(--accent); }
+    .error-line { color: #ffb3c1; }
+
+    .cards {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      margin-bottom: 14px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .card h3 {
+      margin: 0 0 6px;
+      font-size: 15px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #f1f4ff;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .totals {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      font-size: 13px;
+    }
+
+    .chip {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #222838;
+      color: #dbe3ff;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .chip.accent { border-color: var(--accent); color: #0b0d11; background: var(--accent); }
+    .chip.clutch { border-color: var(--accent-2); background: rgba(106, 167, 255, 0.15); color: #e6ebff; }
+    .chip.warn { border-color: var(--warning); background: rgba(249, 214, 92, 0.15); color: #fceeb3; }
+
+    .bar {
+      height: 8px;
+      border-radius: 999px;
+      background: #1a202d;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      margin: 6px 0 10px;
+    }
+
+    .bar > div {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    .events {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .events h3 { margin: 0 0 8px; }
+
+    .event-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      color: #dbe3ff;
+    }
+
+    .event-row:last-child { border-bottom: none; }
+
+    .event-row .who { color: #f8f9ff; font-weight: 600; }
+    .event-row .tag { color: var(--muted); }
+    .event-row .delta { font-weight: 700; text-align: right; }
+    .event-row .delta.pos { color: var(--accent); }
+    .event-row .delta.neg { color: var(--danger); }
+    .event-row .type { text-align: right; color: var(--muted); }
+
+    .badge-list { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    @media (max-width: 720px) {
+      .event-row {
+        grid-template-columns: 1fr 1fr;
+        grid-template-areas: "who delta" "tag type";
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Padel RPG Simulator</h1>
+    <span class="pill">Negative errors enabled · uses server.js API</span>
+  </header>
+
+  <section class="controls">
+    <label>
+      Choose recent match (from /api/db-matches)
+      <select id="matchSelect">
+        <option value="">Loading matches...</option>
+      </select>
+    </label>
+    <label>
+      Or enter match id
+      <input id="matchInput" type="text" placeholder="e.g. 6813" />
+    </label>
+    <label>
+      <span>&nbsp;</span>
+      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px;">
+        <button id="runBtn">Simulate EXP</button>
+        <button class="secondary" id="reloadBtn" type="button">Reload matches</button>
+      </div>
+    </label>
+    <label>
+      Event view
+      <select id="viewModeSelect">
+        <option value="timeline">Full timeline</option>
+        <option value="grouped">Grouped by player</option>
+      </select>
+    </label>
+    <label>
+      Config source
+      <div class="meta" id="configMeta">Loading /rpg-config.json...</div>
+    </label>
+  </section>
+
+  <div class="status-line" id="statusLine"></div>
+  <div class="status-line error-line" id="errorLine"></div>
+
+  <div class="cards" id="summaryCards"></div>
+
+  <div class="cards" id="skillCards"></div>
+
+  <div class="events">
+    <h3>Event breakdown (chronological, grouped by player)</h3>
+    <div id="eventLog"></div>
+  </div>
+
+  <script type="module" src="/js/rpg.js"></script>
+</body>
+</html>

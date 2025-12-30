@@ -363,24 +363,9 @@ async function fetchMatchDurations(matchIds) {
       const end = latestMap.get(key);
       if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
       const durationSec = Math.max(0, end - start);
-      /*
-      console.log('match duration', {
-        matchId: key,
-        start,
-        end,
-        durationSec,
-        durationLabel: formatDurationHuman(durationSec),
-      });
-      */
       result.set(key, durationSec);
       totalDurationSec += durationSec;
     }
-/*    console.log('total duration', {
-      matches: result.size,
-      durationSec: totalDurationSec,
-      durationLabel: formatDurationHuman(totalDurationSec),
-    });
-*/
   } catch (e) {
     console.error('Supabase fetchMatchDurations exception:', e);
   }
@@ -446,23 +431,38 @@ async function fetchSnapshotsHistoryForMatches(matchIds) {
   }
 
   try {
-    const { data, error } = await supabase
-      .from('watch_events')
-      .select('match_id, raw, watch_timestamp, received_at')
-      .in('match_id', matchIds)
-      .order('match_id', { ascending: true })
-      .order('watch_timestamp', { ascending: true, nullsLast: true })
-      .order('id', { ascending: true });
+    const PAGE_SIZE = 1000;
+    for (const matchId of matchIds) {
+      let offset = 0;
+      let keepGoing = true;
+      while (keepGoing) {
+        const { data, error } = await supabase
+          .from('watch_events')
+          .select('match_id, raw, watch_timestamp, received_at')
+          .eq('match_id', matchId)
+          .order('watch_timestamp', { ascending: true, nullsLast: true })
+          .order('id', { ascending: true })
+          .range(offset, offset + PAGE_SIZE - 1);
 
-    if (error) {
-      console.error('Supabase watch_events history select error:', error);
-      return result;
-    }
+        if (error) {
+          console.error('Supabase watch_events history select error:', { matchId, error });
+          break;
+        }
 
-    for (const row of data || []) {
-      const key = String(row.match_id);
-      if (!result.has(key)) result.set(key, []);
-      result.get(key).push(row.raw || {});
+        if (!data || !data.length) {
+          keepGoing = false;
+          break;
+        }
+
+        const key = String(matchId);
+        if (!result.has(key)) result.set(key, []);
+        for (const row of data) {
+          result.get(key).push(row.raw || {});
+        }
+
+        keepGoing = data.length === PAGE_SIZE;
+        offset += PAGE_SIZE;
+      }
     }
   } catch (e) {
     console.error('Supabase fetchSnapshotsHistoryForMatches exception:', e);
@@ -709,6 +709,55 @@ function countSetsPlayed(rawSets) {
     return total > 0 ? total : 1;
   }
   return 1;
+}
+
+// lightweight version of parseSetsArray used on the client
+function parseSetsArrayServer(setsString, setsObj, gamesObj) {
+  const arr = [];
+
+  if (typeof setsString === 'string' && setsString.trim()) {
+    const parts = setsString.split('/').map((s) => s.trim()).filter(Boolean);
+    for (const part of parts) {
+      const match = part.match(/(\d+)\s*-\s*(\d+)/);
+      if (match) {
+        arr.push({
+          team1: Number.parseInt(match[1], 10) || 0,
+          team2: Number.parseInt(match[2], 10) || 0,
+        });
+      }
+    }
+  }
+
+  if (!arr.length && setsObj && (setsObj.team1 != null || setsObj.team2 != null)) {
+    arr.push({
+      team1: Number.parseInt(setsObj.team1, 10) || 0,
+      team2: Number.parseInt(setsObj.team2, 10) || 0,
+    });
+  }
+
+  if (!arr.length && gamesObj && (gamesObj.team1 != null || gamesObj.team2 != null)) {
+    arr.push({
+      team1: Number.parseInt(gamesObj.team1, 10) || 0,
+      team2: Number.parseInt(gamesObj.team2, 10) || 0,
+    });
+  } else if (arr.length && gamesObj) {
+    const g1 = Number.parseInt(gamesObj.team1, 10);
+    const g2 = Number.parseInt(gamesObj.team2, 10);
+    const idx = arr.length - 1;
+    if (Number.isFinite(g1)) arr[idx].team1 = g1;
+    if (Number.isFinite(g2)) arr[idx].team2 = g2;
+  }
+
+  return arr;
+}
+
+function currentSetIndexFromSnapshot(raw) {
+  if (!raw || typeof raw !== 'object') return 1;
+  const setsString = typeof raw.sets === 'string' ? raw.sets : '';
+  const setsObj = raw.sets && typeof raw.sets === 'object' ? raw.sets : null;
+  const gamesObj = raw.games && typeof raw.games === 'object' ? raw.games : null;
+  const arr = parseSetsArrayServer(setsString, setsObj, gamesObj);
+  return arr.length ? arr.length : 1;
 }
 
 // helper: summary from DB raw payload
@@ -2154,14 +2203,12 @@ app.get('/api/player/:id/profile', async (req, res) => {
     payload.calendarDates = Array.from(calendarCounts.entries())
       .map(([date, count]) => ({ date, count }))
       .sort((a, b) => a.date.localeCompare(b.date));
-    const IMPACT_LINES_LIMIT = 50;
     const impactMatchIds = Array.from(matchTimestampMap.entries())
       .sort((a, b) => {
         const aTime = a[1] ? new Date(a[1]).getTime() : 0;
         const bTime = b[1] ? new Date(b[1]).getTime() : 0;
         return bTime - aTime;
       })
-      .slice(0, IMPACT_LINES_LIMIT)
       .map(([id]) => id);
 
     const impactHistory = await fetchSnapshotsHistoryForMatches(impactMatchIds);
@@ -2181,10 +2228,10 @@ app.get('/api/player/:id/profile', async (req, res) => {
         Number.isInteger(winnerTeam) &&
         winnerTeam !== membership?.team &&
         (winnerTeam === 1 || winnerTeam === 2);
-      const points = [];
       const statIndex = teamSlotToIndex(membership?.team, membership?.slot);
       const snapshots = impactHistory.get(matchId) || [];
-      let pointIdx = 0;
+      const setBuckets = new Map();
+      const rawSetRecords = [];
       for (const raw of snapshots) {
         const players = Array.isArray(raw.players) ? raw.players : [];
         if (!players.length || statIndex == null || statIndex >= players.length) continue;
@@ -2192,34 +2239,69 @@ app.get('/api/player/:id/profile', async (req, res) => {
         const val = Number(pl.winners || 0) - Number(pl.errors || 0);
         const winnersVal = Number(pl.winners || 0);
         const errorsVal = Number(pl.errors || 0);
-        points.push({
-          x: pointIdx + 1,
+        const setsString = typeof raw.sets === 'string' ? raw.sets : '';
+        const setsObj = raw.sets && typeof raw.sets === 'object' ? raw.sets : null;
+        const gamesObj = raw.games && typeof raw.games === 'object' ? raw.games : null;
+        const setArr = parseSetsArrayServer(setsString, setsObj, gamesObj);
+        const setIndex = setArr.length ? setArr.length : 1;
+        const setScore = setArr[setIndex - 1] || {};
+        const team1Games = Number(setScore.team1) || 0;
+        const team2Games = Number(setScore.team2) || 0;
+        const hasGames = team1Games > 0 || team2Games > 0;
+        rawSetRecords.push({
+          setIndex,
+          score: {
+            team1: team1Games,
+            team2: team2Games,
+          },
+          hasGames,
+        });
+        if (!setBuckets.has(setIndex)) {
+          setBuckets.set(setIndex, { points: [], hasScore: false });
+        }
+        const bucket = setBuckets.get(setIndex);
+        bucket.points.push({
+          x: bucket.points.length + 1,
           y: val,
           winners: winnersVal,
           errors: errorsVal,
         });
-        pointIdx += 1;
+        if (hasGames) bucket.hasScore = true;
       }
-      if (!points.length) continue;
-      impactLines.push({
-        matchId,
-        finishedAt: matchTimestampMap.get(matchId) || null,
-        result: isWin ? 'W' : isLoss ? 'L' : '',
-        matchType: meta.match_type_id ? typeById.get(meta.match_type_id)?.name || null : null,
-        matchLocation: meta.match_location_id
-          ? locationById.get(meta.match_location_id)?.name || null
-          : null,
-        partner: partner ? { id: partner.id, name: partner.name } : null,
-        opponents: opponents.map((op) => ({ id: op.id, name: op.name })),
-        label: matchTimestampMap.get(matchId)
-          ? new Date(matchTimestampMap.get(matchId)).toLocaleDateString()
-          : `Match ${matchId}`,
-        points,
-      });
+      if (!setBuckets.size) continue;
+      const finishedAt = matchTimestampMap.get(matchId) || null;
+      const baseLabel = finishedAt
+        ? (() => {
+            const d = new Date(finishedAt);
+            return Number.isNaN(d.getTime()) ? `Match ${matchId}` : d.toLocaleDateString('en-GB');
+          })()
+        : `Match ${matchId}`;
+      const sortedSets = Array.from(setBuckets.entries()).sort((a, b) => a[0] - b[0]);
+      for (const [setIndex, bucket] of sortedSets) {
+        if (!bucket.points.length) continue;
+        const hasScore = bucket.hasScore;
+        if (!hasScore) continue; // skip empty sets like 0-0
+        impactLines.push({
+          lineId: `${matchId}-set-${setIndex}`,
+          matchId,
+          setNumber: setIndex,
+          finishedAt,
+          result: isWin ? 'W' : isLoss ? 'L' : '',
+          matchType: meta.match_type_id ? typeById.get(meta.match_type_id)?.name || null : null,
+          matchLocation: meta.match_location_id
+            ? locationById.get(meta.match_location_id)?.name || null
+            : null,
+          partner: partner ? { id: partner.id, name: partner.name } : null,
+          opponents: opponents.map((op) => ({ id: op.id, name: op.name })),
+          label: `${baseLabel} - Set ${setIndex}`,
+          points: bucket.points,
+        });
+      }
     }
 
     payload.impactTimeline = impactTimeline;
-    payload.impactLines = impactLines;
+    const IMPACT_SET_LIMIT = 20;
+    payload.impactLines = impactLines.slice(0, IMPACT_SET_LIMIT);
     payload.recentMatches = recentMatches.slice(0, 10);
 
     return res.json(payload);
@@ -2358,6 +2440,9 @@ app.get('/api/players/rankings', async (req, res) => {
         const winPct = row.matches ? row.wins / row.matches : null;
         const denom = row.totalSets || row.matches || 1;
         const mvpRate = row.matches ? row.mvpCount / row.matches : 0;
+        const avgWinners = denom > 0 ? row.totalWinners / denom : 0;
+        const avgErrors = denom > 0 ? row.totalErrors / denom : 0;
+        const avgImpact = avgWinners - avgErrors;
         return {
           id: row.id,
           name: row.name,
@@ -2366,13 +2451,14 @@ app.get('/api/players/rankings', async (req, res) => {
           wins: row.wins,
           losses: row.losses,
           winPct,
-          avgWinners: row.totalWinners / denom,
-          avgErrors: row.totalErrors / denom,
+          avgWinners,
+          avgErrors,
           totalWinners: row.totalWinners,
           totalErrors: row.totalErrors,
           totalSets: row.totalSets,
           mvpCount: row.mvpCount,
           mvpRate,
+          avgImpact,
         };
       })
       .sort((a, b) => {
@@ -2491,3 +2577,4 @@ const port = process.env.PORT || 10000;
 app.listen(port, () => {
   console.log(`Listening on ${port}`);
 });
+

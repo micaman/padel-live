@@ -1,0 +1,86 @@
+{
+  "name": "Padel RPG Config v1",
+  "baseEvents": {
+    "regular": { "winner": 5, "error": -3 },
+    "first_point": { "winner": 6, "error": -4 },
+    "break_point": { "winner": 12, "error": -8 },
+    "save_break_point": { "winner": 10, "error": -6 },
+    "game_point": { "winner": 10, "error": -6 },
+    "save_game_point": { "winner": 8, "error": -6 },
+    "set_point": { "winner": 15, "error": -10 },
+    "save_set_point": { "winner": 12, "error": -10 },
+    "golden_point": { "winner": 18, "error": -12 }
+  },
+  "bonuses": {
+    "heat": {
+      "startAt": 2,
+      "tier2At": 3,
+      "bonusAfterStart": 2,
+      "bonusAfterTier2": 4,
+      "perGameCap": 16
+    },
+    "grit": {
+      "avoidDoubleErrorBonus": 1
+    },
+    "bounceBack": {
+      "afterErrors": 2,
+      "bonus": 6
+    }
+  },
+  "participation": {
+    "setEntryExp": 5
+  },
+  "skills": {
+    "serve": {
+      "label": "Serve",
+      "description": "Winners on serve, especially first/game/set points while serving"
+    },
+    "defense": {
+      "label": "Defense",
+      "description": "Winning while returning, break wins, and break-point saves"
+    },
+    "mental": {
+      "label": "Mental",
+      "description": "Golden points, set/game points, streak continuation, bounce-backs"
+    },
+    "endurance": {
+      "label": "Endurance",
+      "description": "Attempts/errors still earn small credit; finishing long sets"
+    }
+  },
+  "tiering": {
+    "tiers": [
+      { "code": "trainee", "label": "Trainee", "exp": 0, "minMatches": 0 },
+      { "code": "disciple", "label": "Disciple", "exp": 400, "minMatches": 2 },
+      { "code": "adept", "label": "Adept", "exp": 1000, "minMatches": 4 },
+      { "code": "guardian", "label": "Guardian", "exp": 2000, "minMatches": 6 },
+      { "code": "slayer", "label": "Slayer", "exp": 3500, "minMatches": 8 },
+      { "code": "templar", "label": "Templar", "exp": 5500, "minMatches": 10 },
+      { "code": "archon", "label": "Archon", "exp": 8000, "minMatches": 12 },
+      { "code": "daeva", "label": "Daeva", "exp": 11000, "minMatches": 14 },
+      { "code": "dragon_lord", "label": "Dragon Lord", "exp": 15000, "minMatches": 16 }
+    ]
+  },
+  "badges": {
+    "serve": [
+      { "label": "Ace Recruit", "exp": 500 },
+      { "label": "Thunder Knight", "exp": 2000 },
+      { "label": "Storm Archon", "exp": 5000 }
+    ],
+    "defense": [
+      { "label": "Wall Builder", "exp": 500 },
+      { "label": "Breaker of Serves", "exp": 2000 },
+      { "label": "Receiver Supreme", "exp": 5000 }
+    ],
+    "mental": [
+      { "label": "Clutchling", "exp": 400 },
+      { "label": "Ice Veins", "exp": 1800 },
+      { "label": "Dragon of Deciders", "exp": 4800 }
+    ],
+    "endurance": [
+      { "label": "Iron Steps", "exp": 400 },
+      { "label": "Marathon Guard", "exp": 1600 },
+      { "label": "Unyielding Dragon", "exp": 4200 }
+    ]
+  }
+}
