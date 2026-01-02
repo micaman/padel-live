@@ -1,34 +1,41 @@
 {
   "name": "Padel RPG Config v1",
   "baseEvents": {
-    "regular": { "winner": 5, "error": -3 },
-    "first_point": { "winner": 6, "error": -4 },
-    "break_point": { "winner": 12, "error": -8 },
-    "save_break_point": { "winner": 10, "error": -6 },
-    "game_point": { "winner": 10, "error": -6 },
-    "save_game_point": { "winner": 8, "error": -6 },
-    "set_point": { "winner": 15, "error": -10 },
-    "save_set_point": { "winner": 12, "error": -10 },
-    "golden_point": { "winner": 18, "error": -12 }
+    "regular": { "winner": 50, "error": -3 },
+    "first_point": { "winner": 60, "error": -4 },
+    "break_point": { "winner": 120, "error": -8 },
+    "save_break_point": { "winner": 100, "error": -6 },
+    "game_point": { "winner": 100, "error": -6 },
+    "save_game_point": { "winner": 80, "error": -4 },
+    "set_point": { "winner": 150, "error": -10 },
+    "save_set_point": { "winner": 120, "error": -8 },
+    "golden_point": { "winner": 180, "error": -12 }
   },
   "bonuses": {
     "heat": {
       "startAt": 2,
       "tier2At": 3,
-      "bonusAfterStart": 2,
-      "bonusAfterTier2": 4,
-      "perGameCap": 16
+      "bonusAfterStart": 20,
+      "bonusAfterTier2": 40,
+      "perGameCap": 160
+    },
+    "cold": {
+      "startAt": 2,
+      "tier2At": 3,
+      "penaltyAfterStart": 4,
+      "penaltyAfterTier2": 8,
+      "perGameCap": 60
     },
     "grit": {
-      "avoidDoubleErrorBonus": 1
+      "avoidDoubleErrorBonus": 10
     },
     "bounceBack": {
-      "afterErrors": 2,
-      "bonus": 6
+      "afterErrors": 3,
+      "bonus": 60
     }
   },
   "participation": {
-    "setEntryExp": 5
+    "setEntryExp": 50
   },
   "skills": {
     "serve": {

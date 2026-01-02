@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Padel RPG Rankings</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #0f1116;
+      --panel: #181b24;
+      --card: #1f2430;
+      --accent: #58d68d;
+      --accent-2: #6aa7ff;
+      --muted: #9aa3b5;
+      --border: #2b3241;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 20%, rgba(90,123,255,0.12), transparent 25%),
+                  radial-gradient(circle at 80% 10%, rgba(88,214,141,0.12), transparent 25%),
+                  var(--bg);
+      color: #e6ebff;
+      min-height: 100vh;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    h1 {
+      font-size: 20px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin: 0;
+    }
+
+    .pill {
+      background: #222838;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      text-decoration: none;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    button {
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--accent), #53c7f0);
+      color: #0b0d11;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 14px;
+    }
+
+    .status-line {
+      font-size: 13px;
+      color: var(--muted);
+      min-height: 18px;
+    }
+
+    .error-line { color: #ffb3c1; min-height: 18px; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      font-weight: 700;
+      color: #f1f4ff;
+      background: #1a202d;
+      cursor: default;
+      user-select: none;
+    }
+
+    th.sortable { cursor: pointer; }
+
+    tbody tr:nth-child(odd) { background: rgba(255,255,255,0.02); }
+
+    @media (max-width: 768px) {
+      table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Padel RPG Rankings</h1>
+    <a class="pill" href="/rpg.html">Back to simulator</a>
+    <span class="pill" id="configMeta">Loading config...</span>
+    <span class="pill" id="summaryMeta"></span>
+    <button id="reloadBtn" type="button">Rebuild leaderboard</button>
+    <a class="pill" href="/rank.html">Refresh page</a>
+  </header>
+
+  <div class="status-line" id="statusLine"></div>
+  <div class="error-line" id="errorLine"></div>
+
+  <div class="panel">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th class="sortable" data-sort="name">Player</th>
+          <th class="sortable" data-sort="tier">Tier</th>
+          <th class="sortable" data-sort="totalExp">Total EXP</th>
+          <th class="sortable" data-sort="baseExp">Base</th>
+          <th class="sortable" data-sort="bonusExp">Bonus</th>
+          <th class="sortable" data-sort="serve">Serve</th>
+          <th class="sortable" data-sort="defense">Defense</th>
+          <th class="sortable" data-sort="mental">Mental</th>
+          <th class="sortable" data-sort="endurance">Endurance</th>
+          <th class="sortable" data-sort="badgeServe">Serve badge</th>
+          <th class="sortable" data-sort="badgeDefense">Defense badge</th>
+          <th class="sortable" data-sort="badgeMental">Mental badge</th>
+          <th class="sortable" data-sort="badgeEndurance">Endurance badge</th>
+          <th class="sortable" data-sort="matches">Matches</th>
+        </tr>
+      </thead>
+      <tbody id="leaderboardBody"></tbody>
+    </table>
+  </div>
+
+  <script type="module" src="/js/rank.js"></script>
+</body>
+</html>
