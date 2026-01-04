@@ -218,33 +218,55 @@ function formatScoreLabel(points, games, sets) {
   return `Sets ${sets.team1}-${sets.team2} | Games ${games.team1}-${games.team2} | Points ${points.team1}-${points.team2}`;
 }
 
-function computeSkillGains(delta, eventType, tags, onServe, configSkills) {
+function computeSkillGains(delta, eventType, tags, onServe, skillGainConfig) {
   const gains = { serve: 0, defense: 0, mental: 0, endurance: 0 };
-  const clutchTags = new Set(["golden_point", "set_point", "game_point", "break_point", "save_break_point", "streak"]);
+  const cfg = skillGainConfig || {};
+  const clutchTags = new Set(
+    cfg.clutchTags || ["golden_point", "set_point", "game_point", "break_point", "save_break_point", "streak"]
+  );
+  const winnerCfg = cfg.winner || {};
+  const errorCfg = cfg.error || {};
+
   const magnitude = Math.abs(delta);
   const sign = delta >= 0 ? 1 : -1;
 
   if (eventType === "winner") {
-    if (onServe) gains.serve += delta;
-    else gains.defense += delta;
+    const serveWeight = winnerCfg.serveWeight ?? 1;
+    const defenseWeight = winnerCfg.defenseWeight ?? 1;
+    const mentalClutchMultiplier = winnerCfg.mentalClutchMultiplier ?? 0.6;
+    const enduranceMultiplier = winnerCfg.enduranceMultiplier ?? 0.25;
+    const streakMentalMultiplier = winnerCfg.streakMentalMultiplier ?? 0.35;
+    const streakMentalFloor = winnerCfg.streakMentalFloor ?? 1;
+    const bbMentalMultiplier = winnerCfg.bounceBackMentalMultiplier ?? 0.3;
+    const bbMentalFloor = winnerCfg.bounceBackMentalFloor ?? 1;
+    const bbEnduranceMultiplier = winnerCfg.bounceBackEnduranceMultiplier ?? 0.3;
+    const bbEnduranceFloor = winnerCfg.bounceBackEnduranceFloor ?? 1;
+
+    if (onServe) gains.serve += delta * serveWeight;
+    else gains.defense += delta * defenseWeight;
     if (tags.some((t) => clutchTags.has(t))) {
-      gains.mental += Math.round(magnitude * 0.6) * sign;
+      gains.mental += Math.round(magnitude * mentalClutchMultiplier) * sign;
     }
-    gains.endurance += Math.round(magnitude * 0.25) * sign;
+    gains.endurance += Math.round(magnitude * enduranceMultiplier) * sign;
     if (tags.includes("streak")) {
-      gains.mental += Math.max(1, Math.round(magnitude * 0.35)) * sign;
+      gains.mental += Math.max(streakMentalFloor, Math.round(magnitude * streakMentalMultiplier)) * sign;
     }
     if (tags.includes("bounce_back")) {
-      gains.mental += Math.max(1, Math.round(magnitude * 0.3)) * sign;
-      gains.endurance += Math.max(1, Math.round(magnitude * 0.3)) * sign;
+      gains.mental += Math.max(bbMentalFloor, Math.round(magnitude * bbMentalMultiplier)) * sign;
+      gains.endurance += Math.max(bbEnduranceFloor, Math.round(magnitude * bbEnduranceMultiplier)) * sign;
     }
   } else if (eventType === "error") {
-    if (onServe) gains.serve += Math.round(delta * 0.6);
-    else gains.defense += Math.round(delta * 0.6);
+    const serveMultiplier = errorCfg.serveMultiplier ?? 0.6;
+    const defenseMultiplier = errorCfg.defenseMultiplier ?? 0.6;
+    const clutchMentalMultiplier = errorCfg.mentalClutchMultiplier ?? 0.7;
+    const enduranceMultiplier = errorCfg.enduranceMultiplier ?? 0.4;
+
+    if (onServe) gains.serve += Math.round(delta * serveMultiplier);
+    else gains.defense += Math.round(delta * defenseMultiplier);
     if (tags.some((t) => clutchTags.has(t))) {
-      gains.mental += Math.round(delta * 0.7);
+      gains.mental += Math.round(delta * clutchMentalMultiplier);
     }
-    gains.endurance += Math.round(delta * 0.4);
+    gains.endurance += Math.round(delta * enduranceMultiplier);
   }
   return gains;
 }
@@ -479,7 +501,7 @@ function simulateExp(history, configData) {
         actor.bonusExp += bonusDelta;
         actor.totalExp += totalDelta;
 
-        const skillGain = computeSkillGains(totalDelta, eventType, tags, onServe, configData.skills);
+        const skillGain = computeSkillGains(totalDelta, eventType, tags, onServe, configData.skillGains);
         for (const [k, v] of Object.entries(skillGain)) {
           actor.skills[k] = (actor.skills[k] || 0) + v;
         }

@@ -58,36 +58,36 @@
   "tiering": {
     "tiers": [
       { "code": "trainee", "label": "Trainee", "exp": 0, "minMatches": 0 },
-      { "code": "disciple", "label": "Disciple", "exp": 400, "minMatches": 2 },
-      { "code": "adept", "label": "Adept", "exp": 1000, "minMatches": 4 },
-      { "code": "guardian", "label": "Guardian", "exp": 2000, "minMatches": 6 },
-      { "code": "slayer", "label": "Slayer", "exp": 3500, "minMatches": 8 },
-      { "code": "templar", "label": "Templar", "exp": 5500, "minMatches": 10 },
-      { "code": "archon", "label": "Archon", "exp": 8000, "minMatches": 12 },
-      { "code": "daeva", "label": "Daeva", "exp": 11000, "minMatches": 14 },
-      { "code": "dragon_lord", "label": "Dragon Lord", "exp": 15000, "minMatches": 16 }
+      { "code": "disciple", "label": "Disciple", "exp": 2000, "minMatches": 2 },
+      { "code": "adept", "label": "Adept", "exp": 5000, "minMatches": 4 },
+      { "code": "guardian", "label": "Guardian", "exp": 10000, "minMatches": 6 },
+      { "code": "slayer", "label": "Slayer", "exp": 17500, "minMatches": 8 },
+      { "code": "templar", "label": "Templar", "exp": 27500, "minMatches": 10 },
+      { "code": "archon", "label": "Archon", "exp": 40000, "minMatches": 12 },
+      { "code": "daeva", "label": "Daeva", "exp": 55000, "minMatches": 14 },
+      { "code": "dragon_lord", "label": "Dragon Lord", "exp": 75000, "minMatches": 16 }
     ]
   },
   "badges": {
     "serve": [
-      { "label": "Ace Recruit", "exp": 500 },
-      { "label": "Thunder Knight", "exp": 2000 },
-      { "label": "Storm Archon", "exp": 5000 }
+      { "label": "Ace Recruit", "exp": 2500 },
+      { "label": "Thunder Knight", "exp": 10000 },
+      { "label": "Storm Archon", "exp": 25000 }
     ],
     "defense": [
-      { "label": "Wall Builder", "exp": 500 },
-      { "label": "Breaker of Serves", "exp": 2000 },
-      { "label": "Receiver Supreme", "exp": 5000 }
+      { "label": "Wall Builder", "exp": 2500 },
+      { "label": "Breaker of Serves", "exp": 10000 },
+      { "label": "Receiver Supreme", "exp": 25000 }
     ],
     "mental": [
-      { "label": "Clutchling", "exp": 400 },
-      { "label": "Ice Veins", "exp": 1800 },
-      { "label": "Dragon of Deciders", "exp": 4800 }
+      { "label": "Clutchling", "exp": 2000 },
+      { "label": "Ice Veins", "exp": 9000 },
+      { "label": "Dragon of Deciders", "exp": 24000 }
     ],
     "endurance": [
-      { "label": "Iron Steps", "exp": 400 },
-      { "label": "Marathon Guard", "exp": 1600 },
-      { "label": "Unyielding Dragon", "exp": 4200 }
+      { "label": "Iron Steps", "exp": 2000 },
+      { "label": "Marathon Guard", "exp": 8000 },
+      { "label": "Unyielding Dragon", "exp": 21000 }
     ]
   }
 }
