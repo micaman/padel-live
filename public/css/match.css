@@ -487,6 +487,105 @@ th {
   font-weight: 600;
 }
 
+.detail-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.detail-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid #25293a;
+  background: linear-gradient(135deg, #1f2436, #151825);
+  font-size: 12px;
+  color: #f5f5f5;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.detail-chip__icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #0f1017;
+}
+
+.detail-chip__icon svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  color: currentColor;
+}
+
+.detail-chip--door .detail-chip__icon,
+.detail-chip--barbaridad .detail-chip__icon,
+.detail-chip--normal .detail-chip__icon,
+.detail-chip--home .detail-chip__icon,
+.detail-chip--x3 .detail-chip__icon,
+.detail-chip--x4 .detail-chip__icon {
+  background: #f7c948;
+}
+
+.detail-chip--unforced .detail-chip__icon {
+  background: #cfcfcf;
+}
+.detail-chip--forced .detail-chip__icon {
+  background: #ff6b6b;
+}
+.detail-chip--beer .detail-chip__icon {
+  background: #000000;
+}
+
+.detail-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.detail-card {
+  background: linear-gradient(145deg, rgba(32, 34, 45, 0.9), rgba(17, 18, 23, 0.95));
+  border: 1px solid #25293a;
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.detail-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.detail-card__badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid #25293a;
+  background: rgba(90, 176, 255, 0.15);
+}
+
+.detail-section-title {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
