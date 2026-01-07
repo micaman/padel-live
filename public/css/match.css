@@ -160,6 +160,48 @@ button:hover {
   color: #ff6b6b;
 }
 
+.duration-longest {
+  color: #57d657;
+  font-weight: 700;
+}
+
+.duration-shortest {
+  color: #ff6b6b;
+  font-weight: 700;
+}
+
+.note-heart {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+}
+
+.note-heart svg {
+  width: 12px;
+  height: 12px;
+}
+
+.note-heart--min {
+  color: #57d657;
+}
+
+.note-heart--max {
+  color: #ff6b6b;
+}
+
+.detail-chip-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px;
+}
+
+.detail-chip__icon--inline {
+  width: 16px;
+  height: 16px;
+}
+
 .error {
   color: #ff6b6b;
   font-size: 12px;
@@ -441,6 +483,33 @@ table {
   font-size: 13px;
 }
 
+/* Ensure game history event columns have room for name + inline icon */
+table th:nth-child(1),
+table td:nth-child(1),
+table th:nth-child(2),
+table td:nth-child(2) {
+  min-width: 140px;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .detail-card-grid {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+  table th:nth-child(1),
+  table td:nth-child(1),
+  table th:nth-child(2),
+  table td:nth-child(2) {
+    min-width: 0;
+    white-space: normal;
+    word-break: break-word;
+  }
+  th,
+  td {
+    padding: 6px 6px;
+  }
+}
+
 th,
 td {
   padding: 6px 8px;
@@ -536,10 +605,10 @@ th {
 }
 
 .detail-chip--unforced .detail-chip__icon {
-  background: #cfcfcf;
+  background: red;
 }
 .detail-chip--forced .detail-chip__icon {
-  background: #ff6b6b;
+  background: orange;
 }
 .detail-chip--beer .detail-chip__icon {
   background: #000000;
@@ -547,7 +616,7 @@ th {
 
 .detail-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
   gap: 10px;
 }
 
@@ -567,6 +636,12 @@ th {
   font-size: 13px;
 }
 
+.detail-card__badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .detail-card__badge {
   padding: 4px 8px;
   border-radius: 999px;
@@ -575,6 +650,11 @@ th {
   text-transform: uppercase;
   border: 1px solid #25293a;
   background: rgba(90, 176, 255, 0.15);
+}
+
+.detail-card__badge--impact {
+  background: rgba(87, 214, 87, 0.15);
+  border-color: rgba(87, 214, 87, 0.5);
 }
 
 .detail-section-title {
