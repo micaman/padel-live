@@ -10,6 +10,7 @@ app.use(express.urlencoded({ extended: true }));
 const BASIC_USER = process.env.BASIC_AUTH_USER;
 const BASIC_PASS = process.env.BASIC_AUTH_PASS;
 const BASIC_REALM = process.env.BASIC_AUTH_REALM || 'Padel Live';
+const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12h
 
 function shouldEnforceAuth(req) {
   // allow health checks and watch ingest without auth
@@ -82,6 +83,18 @@ function slugifyPlayerName(value) {
   return slugifyText(value);
 }
 
+function sanitizeSetsString(raw) {
+  if (typeof raw !== 'string') return '';
+  const parts = raw
+    .split('/')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  while (parts.length && /^0\s*-\s*0$/i.test(parts[parts.length - 1])) {
+    parts.pop();
+  }
+  return parts.join(' / ');
+}
+
 function parseNullableId(raw) {
   if (raw === undefined) return undefined;
   if (raw === null || raw === '') return null;
@@ -139,6 +152,38 @@ async function fetchMatchTypeOptions() {
   }
 }
 
+const matchTypesCache = { data: new Map(), fetchedAt: 0 };
+const matchLocationsCache = { data: new Map(), fetchedAt: 0 };
+
+async function getCachedMatchTypes(ids) {
+  if (!supabase) return new Map();
+  const now = Date.now();
+  const expired = now - matchTypesCache.fetchedAt > CACHE_TTL_MS;
+  const needed = expired ? ids : ids.filter((id) => !matchTypesCache.data.has(id));
+  if (expired) {
+    matchTypesCache.data = new Map();
+  }
+  if (needed.length) {
+    try {
+      const { data, error } = await supabase
+        .from('match_types')
+        .select('id, name, icon_url')
+        .in('id', Array.from(new Set(needed)));
+      if (error) {
+        console.error('Supabase match_types select error (cached):', error);
+      } else {
+        for (const row of data || []) {
+          matchTypesCache.data.set(row.id, formatMatchTypeRow(row));
+        }
+        matchTypesCache.fetchedAt = now;
+      }
+    } catch (e) {
+      console.error('Supabase match_types cached fetch exception:', e);
+    }
+  }
+  return new Map(ids.map((id) => [id, matchTypesCache.data.get(id)]));
+}
+
 async function fetchMatchLocationOptions() {
   if (!supabase) return [];
   try {
@@ -155,6 +200,35 @@ async function fetchMatchLocationOptions() {
     console.error('Supabase fetchMatchLocationOptions exception:', e);
     return [];
   }
+}
+
+async function getCachedMatchLocations(ids) {
+  if (!supabase) return new Map();
+  const now = Date.now();
+  const expired = now - matchLocationsCache.fetchedAt > CACHE_TTL_MS;
+  const needed = expired ? ids : ids.filter((id) => !matchLocationsCache.data.has(id));
+  if (expired) {
+    matchLocationsCache.data = new Map();
+  }
+  if (needed.length) {
+    try {
+      const { data, error } = await supabase
+        .from('match_locations')
+        .select('id, name, logo_url')
+        .in('id', Array.from(new Set(needed)));
+      if (error) {
+        console.error('Supabase match_locations select error (cached):', error);
+      } else {
+        for (const row of data || []) {
+          matchLocationsCache.data.set(row.id, formatMatchLocationRow(row));
+        }
+        matchLocationsCache.fetchedAt = now;
+      }
+    } catch (e) {
+      console.error('Supabase match_locations cached fetch exception:', e);
+    }
+  }
+  return new Map(ids.map((id) => [id, matchLocationsCache.data.get(id)]));
 }
 
 async function ensureMatchTypeByName(name) {
@@ -277,6 +351,67 @@ function getDayLabel(timestamp) {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return 'Unknown';
   return DAY_LABELS[date.getDay()];
+}
+
+const WINNER_DETAIL_KEYS = ['normal', 'home', 'x3', 'x4', 'door', 'barbaridad'];
+const ERROR_DETAIL_KEYS = ['unforced', 'forced', 'beer'];
+
+function normalizeWinnerDetail(detailRaw) {
+  const detail = typeof detailRaw === 'string' ? detailRaw.trim().toLowerCase() : '';
+  if (!detail) return 'normal';
+  return WINNER_DETAIL_KEYS.includes(detail) ? detail : 'normal';
+}
+
+function normalizeErrorDetail(detailRaw) {
+  const detail = typeof detailRaw === 'string' ? detailRaw.trim().toLowerCase() : '';
+  if (!detail) return 'unforced';
+  return ERROR_DETAIL_KEYS.includes(detail) ? detail : 'unforced';
+}
+
+function createWinnerDetailBuckets() {
+  return WINNER_DETAIL_KEYS.reduce((acc, key) => {
+    acc[key] = 0;
+    return acc;
+  }, {});
+}
+
+function createErrorDetailBuckets() {
+  return ERROR_DETAIL_KEYS.reduce((acc, key) => {
+    acc[key] = 0;
+    return acc;
+  }, {});
+}
+
+function getExtraInfoFromSnapshotServer(snap) {
+  if (!snap || typeof snap !== 'object') return null;
+  return snap.extraInfo ?? snap.extra_info ?? null;
+}
+
+function accumulateDetailTotalsForPlayer(snapshots, playerIndex, totals) {
+  if (!totals || !totals.winners || !totals.errors) return;
+  if (!Array.isArray(snapshots) || snapshots.length < 2) return;
+  if (playerIndex == null) return;
+  for (let i = 1; i < snapshots.length; i++) {
+    const prev = snapshots[i - 1] || {};
+    const curr = snapshots[i] || {};
+    const extraInfo = getExtraInfoFromSnapshotServer(curr);
+    const prevPlayers = Array.isArray(prev.players) ? prev.players : [];
+    const currPlayers = Array.isArray(curr.players) ? curr.players : [];
+    const prevStats = prevPlayers[playerIndex] || {};
+    const currStats = currPlayers[playerIndex] || {};
+    const winnerDiff = Number(currStats.winners || 0) - Number(prevStats.winners || 0);
+    const errorDiff = Number(currStats.errors || 0) - Number(prevStats.errors || 0);
+    if (winnerDiff > 0) {
+      const key = normalizeWinnerDetail(extraInfo);
+      totals.winners[key] = (totals.winners[key] || 0) + winnerDiff;
+      totals.totalEvents += winnerDiff;
+    }
+    if (errorDiff > 0) {
+      const key = normalizeErrorDetail(extraInfo);
+      totals.errors[key] = (totals.errors[key] || 0) + errorDiff;
+      totals.totalEvents += errorDiff;
+    }
+  }
 }
 
 async function fetchMatchDurations(matchIds) {
@@ -696,7 +831,7 @@ function computeMvpIndicesFromSnap(snap) {
 
 function countSetsPlayed(rawSets) {
   if (typeof rawSets === 'string') {
-    const parts = rawSets
+    const parts = sanitizeSetsString(rawSets)
       .split('/')
       .map((s) => s.trim())
       .filter(Boolean);
@@ -716,7 +851,10 @@ function parseSetsArrayServer(setsString, setsObj, gamesObj) {
   const arr = [];
 
   if (typeof setsString === 'string' && setsString.trim()) {
-    const parts = setsString.split('/').map((s) => s.trim()).filter(Boolean);
+    const parts = sanitizeSetsString(setsString)
+      .split('/')
+      .map((s) => s.trim())
+      .filter(Boolean);
     for (const part of parts) {
       const match = part.match(/(\d+)\s*-\s*(\d+)/);
       if (match) {
@@ -770,7 +908,7 @@ function summaryFromRaw(raw) {
   let sets = { team1: 0, team2: 0 };
 
   if (typeof raw.sets === 'string') {
-    setsString = raw.sets.trim();
+    setsString = sanitizeSetsString(raw.sets);
     sets = deriveSetCountsFromString(setsString);
   } else if (raw.sets && typeof raw.sets === 'object') {
     sets = {
@@ -1704,6 +1842,11 @@ app.get('/api/player/:id/profile', async (req, res) => {
     impactTimeline: [],
     impactLines: [],
     recentMatches: [],
+    detailTotals: {
+      winners: createWinnerDetailBuckets(),
+      errors: createErrorDetailBuckets(),
+      totalEvents: 0,
+    },
   };
 
   try {
@@ -1746,19 +1889,23 @@ app.get('/api/player/:id/profile', async (req, res) => {
     }
     const matchIds = Array.from(membershipByMatch.keys());
 
-    const [{ data: matchesMeta, error: matchesErr }, { data: matchPlayersRows, error: matchPlayersErr }] =
-      await Promise.all([
-        supabase
-          .from('matches')
-          .select(
-            'match_id, status, winner_team, match_type_id, match_location_id, finished_at, scheduled_at, created_at, match_level, match_cost',
-          )
-          .in('match_id', matchIds),
-        supabase
-          .from('match_players')
-          .select('match_id, team, slot, player:players(id, name)')
-          .in('match_id', matchIds),
-      ]);
+    const [
+      { data: matchesMeta, error: matchesErr },
+      { data: matchPlayersRows, error: matchPlayersErr },
+      { data: rollupRows, error: rollupErr },
+    ] = await Promise.all([
+      supabase
+        .from('matches')
+        .select(
+          'match_id, status, winner_team, match_type_id, match_location_id, finished_at, scheduled_at, created_at, match_level, match_cost',
+        )
+        .in('match_id', matchIds),
+      supabase
+        .from('match_players')
+        .select('match_id, team, slot, player:players(id, name)')
+        .in('match_id', matchIds),
+      supabase.rpc('player_profile_rollup', { p_player_id: playerId }),
+    ]);
 
     if (matchesErr) {
       console.error('Supabase matches select error (player profile):', matchesErr);
@@ -1767,6 +1914,9 @@ app.get('/api/player/:id/profile', async (req, res) => {
     if (matchPlayersErr) {
       console.error('Supabase match_players select error (player profile roster):', matchPlayersErr);
       return res.status(500).json({ error: 'Failed to load match rosters' });
+    }
+    if (rollupErr) {
+      console.error('Supabase player_profile_rollup rpc error:', rollupErr);
     }
 
     const matchesById = new Map();
@@ -1778,36 +1928,33 @@ app.get('/api/player/:id/profile', async (req, res) => {
       if (row.match_type_id) typeIds.add(row.match_type_id);
       if (row.match_location_id) locationIds.add(row.match_location_id);
     }
-
-    let typeById = new Map();
-    if (typeIds.size) {
-      const { data: typeRows, error: typeErr } = await supabase
-        .from('match_types')
-        .select('id, name, icon_url')
-        .in('id', Array.from(typeIds));
-      if (typeErr) {
-        console.error('Supabase match_types select error (player profile):', typeErr);
-      } else {
-        typeById = new Map(
-          (typeRows || []).map((row) => [row.id, formatMatchTypeRow(row)]),
-        );
+    // Populate matches map from rollup rows if not already present (covers RPC-only paths)
+    for (const row of rollupRows || []) {
+      const matchKey = String(row.match_id);
+      if (!matchesById.has(matchKey)) {
+        matchesById.set(matchKey, {
+          match_id: row.match_id,
+          status: row.status,
+          winner_team: row.winner_team,
+          match_type_id: row.match_type_id,
+          match_location_id: row.match_location_id,
+          finished_at: row.finished_at,
+          scheduled_at: row.scheduled_at,
+          created_at: row.created_at,
+          match_level: row.match_level,
+          match_cost: row.match_cost,
+        });
       }
+      if (row.match_type_id) typeIds.add(row.match_type_id);
+      if (row.match_location_id) locationIds.add(row.match_location_id);
     }
 
-    let locationById = new Map();
-    if (locationIds.size) {
-      const { data: locationRows, error: locationErr } = await supabase
-        .from('match_locations')
-        .select('id, name, logo_url')
-        .in('id', Array.from(locationIds));
-      if (locationErr) {
-        console.error('Supabase match_locations select error (player profile):', locationErr);
-      } else {
-        locationById = new Map(
-          (locationRows || []).map((row) => [row.id, formatMatchLocationRow(row)]),
-        );
-      }
-    }
+    const typeById =
+      typeIds.size && supabase ? await getCachedMatchTypes(Array.from(typeIds)) : new Map();
+    const locationById =
+      locationIds.size && supabase
+        ? await getCachedMatchLocations(Array.from(locationIds))
+        : new Map();
 
     const playersByMatch = new Map();
     for (const row of matchPlayersRows || []) {
@@ -1832,6 +1979,12 @@ app.get('/api/player/:id/profile', async (req, res) => {
     const snapshotsMap = await fetchLatestSnapshotsForMatches(matchIds);
     const durationsByMatch = await fetchMatchDurations(matchIds);
 
+    const rollupByKey = new Map();
+    for (const row of rollupRows || []) {
+      const key = `${row.match_id}|${row.team}|${row.slot}`;
+      rollupByKey.set(key, row);
+    }
+
     const summary = { ...payload.summary };
     const typeBuckets = new Map();
     const locationBuckets = new Map();
@@ -1848,6 +2001,11 @@ app.get('/api/player/:id/profile', async (req, res) => {
     const impactTimeline = [];
     const impactLines = [];
     const matchTimestampMap = new Map();
+    const detailTotals = {
+      winners: createWinnerDetailBuckets(),
+      errors: createErrorDetailBuckets(),
+      totalEvents: 0,
+    };
 
     const updateBucket = (
       map,
@@ -1929,17 +2087,33 @@ app.get('/api/player/:id/profile', async (req, res) => {
     };
 
     for (const [matchId, membership] of membershipByMatch.entries()) {
-      const meta = matchesById.get(matchId) || {};
+      const meta =
+        matchesById.get(matchId) ||
+        rollupByKey.get(`${matchId}|${membership.team}|${membership.slot}`) ||
+        {};
       const snapshot = snapshotsMap.get(matchId);
       const raw = snapshot?.raw || {};
-      const playersSnapshot = Array.isArray(raw.players) ? raw.players : [];
       const statIndex = teamSlotToIndex(membership.team, membership.slot);
+      const rollupKey = `${matchId}|${membership.team}|${membership.slot}`;
+      const rollup = rollupByKey.get(rollupKey) || {};
+      const playersSnapshot = Array.isArray(raw.players) ? raw.players : [];
       const playerStats = playersSnapshot[statIndex] || {};
-      const winners = Number(playerStats.winners || 0);
-      const errors = Number(playerStats.errors || 0);
+      const winners = Number(
+        rollup.winners != null ? rollup.winners : playerStats.winners || 0,
+      );
+      const errors = Number(
+        rollup.errors != null ? rollup.errors : playerStats.errors || 0,
+      );
       const mvpIndices = computeMvpIndicesFromSnap(raw);
-      const isMvp = Array.isArray(mvpIndices) && mvpIndices.includes(statIndex);
-      const setsPlayed = countSetsPlayed(raw.sets);
+      const isMvp =
+        rollup.is_mvp != null
+          ? Boolean(rollup.is_mvp)
+          : Array.isArray(mvpIndices) && mvpIndices.includes(statIndex);
+      const rollupSets = Number(rollup.sets_played);
+      const setsPlayed =
+        Number.isFinite(rollupSets) && rollupSets > 0
+          ? rollupSets
+          : countSetsPlayed(raw.sets);
       const winnerTeam = Number(meta.winner_team);
       const isWin = Number.isInteger(winnerTeam) && winnerTeam === membership.team;
       const isLoss =
@@ -2230,6 +2404,7 @@ app.get('/api/player/:id/profile', async (req, res) => {
         (winnerTeam === 1 || winnerTeam === 2);
       const statIndex = teamSlotToIndex(membership?.team, membership?.slot);
       const snapshots = impactHistory.get(matchId) || [];
+      accumulateDetailTotalsForPlayer(snapshots, statIndex, detailTotals);
       const setBuckets = new Map();
       const rawSetRecords = [];
       for (const raw of snapshots) {
@@ -2303,6 +2478,7 @@ app.get('/api/player/:id/profile', async (req, res) => {
     const IMPACT_SET_LIMIT = 20;
     payload.impactLines = impactLines.slice(0, IMPACT_SET_LIMIT);
     payload.recentMatches = recentMatches.slice(0, 10);
+    payload.detailTotals = detailTotals;
 
     return res.json(payload);
   } catch (e) {

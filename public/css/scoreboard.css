@@ -160,6 +160,11 @@
   border-top: 1px solid #444;
 }
 
+.sb-set--high {
+  color: #f7c948;
+  text-shadow: 0 0 4px rgba(247, 201, 72, 0.35);
+}
+
 .sb-points {
   display: grid;
   grid-template-rows: 1fr 1fr;

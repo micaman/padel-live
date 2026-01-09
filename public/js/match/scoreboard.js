@@ -23,6 +23,18 @@ function shouldHideSetScore(isMatchFinished, top, bottom) {
   return bothMissing || bothDash || bothZero;
 }
 
+function applySetHighlight(column, top, bottom) {
+  if (!column?.t1 || !column?.t2) return;
+  column.t1.classList.remove("sb-set--high");
+  column.t2.classList.remove("sb-set--high");
+  const tTop = Number(top);
+  const tBottom = Number(bottom);
+  if (!Number.isFinite(tTop) || !Number.isFinite(tBottom)) return;
+  if (tTop === tBottom) return;
+  const target = tTop > tBottom ? column.t1 : column.t2;
+  target.classList.add("sb-set--high");
+}
+
 export function renderSetColumns(setsArray, isMatchFinished, setCells) {
   for (let i = 0; i < setCells.length; i++) {
     const column = setCells[i];
@@ -31,6 +43,7 @@ export function renderSetColumns(setsArray, isMatchFinished, setCells) {
     const bottom = setScore && setScore.team2 != null ? setScore.team2 : "-";
     column.t1.textContent = top;
     column.t2.textContent = bottom;
+    applySetHighlight(column, top, bottom);
     if (column.root) {
       const hideColumn = shouldHideSetScore(isMatchFinished, top, bottom);
       column.root.style.display = hideColumn ? "none" : "";

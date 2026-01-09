@@ -240,6 +240,8 @@ function createMatchCard(m) {
     col.style.display = "";
     col.children[0].textContent = "-";
     col.children[1].textContent = "-";
+    col.children[0].classList.remove("sb-set--high");
+    col.children[1].classList.remove("sb-set--high");
   });
 
   sets.forEach((s, i) => {
@@ -254,6 +256,12 @@ function createMatchCard(m) {
     const bottom = score?.t2 ?? col.children[1].textContent;
     if (shouldHideSet(m, top, bottom)) {
       col.style.display = "none";
+    }
+    const nTop = Number(top);
+    const nBottom = Number(bottom);
+    if (Number.isFinite(nTop) && Number.isFinite(nBottom) && nTop !== nBottom) {
+      const winnerEl = nTop > nBottom ? col.children[0] : col.children[1];
+      winnerEl.classList.add("sb-set--high");
     }
   });
 

@@ -10,6 +10,7 @@ const errorEl = document.getElementById("error");
 const playerNameEl = document.getElementById("playerName");
 const subtitleEl = document.getElementById("playerSubtitle");
 const recentMatchesEl = document.getElementById("recentMatches");
+const detailCardsEl = document.getElementById("playerDetailCards");
 
 const summaryEls = {
   matches: document.getElementById("summaryMatches"),
@@ -17,6 +18,8 @@ const summaryEls = {
   wins: document.getElementById("summaryWins"),
   losses: document.getElementById("summaryLosses"),
   winPct: document.getElementById("summaryWinPct"),
+  totalWinners: document.getElementById("summaryTotalWinners"),
+  totalErrors: document.getElementById("summaryTotalErrors"),
   avgWinners: document.getElementById("summaryAvgWinners"),
   avgErrors: document.getElementById("summaryAvgErrors"),
   mvpPct: document.getElementById("summaryMvpPct"),
@@ -44,6 +47,31 @@ const tableSortState = new Map();
 
 const calendarContainer = document.getElementById("matchCalendar");
 const MOBILE_BREAKPOINT = 520;
+const WINNER_DETAIL_KEYS = ["normal", "home", "x3", "x4", "door", "barbaridad"];
+const ERROR_DETAIL_KEYS = ["unforced", "forced", "beer"];
+const WINNER_DETAIL_LABELS = {
+  normal: "Normal",
+  home: "Home",
+  x3: "x3",
+  x4: "x4",
+  door: "Door",
+  barbaridad: "Barbaridad",
+};
+const ERROR_DETAIL_LABELS = {
+  unforced: "Unforced",
+  forced: "Forced",
+  beer: "Beer",
+};
+const NORMAL_WINNER_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-trophy" viewBox="0 0 16 16"><path d="M2.5.5A.5.5 0 0 1 3 0h10a.5.5 0 0 1 .5.5q0 .807-.034 1.536a3 3 0 1 1-1.133 5.89c-.79 1.865-1.878 2.777-2.833 3.011v2.173l1.425.356c.194.048.377.135.537.255L13.3 15.1a.5.5 0 0 1-.3.9H3a.5.5 0 0 1-.3-.9l1.838-1.379c.16-.12.343-.207.537-.255L6.5 13.11v-2.173c-.955-.234-2.043-1.146-2.833-3.012a3 3 0 1 1-1.132-5.89A33 33 0 0 1 2.5.5m.099 2.54a2 2 0 0 0 .72 3.935c-.333-1.05-.588-2.346-.72-3.935m10.083 3.935a2 2 0 0 0 .72-3.935c-.133 1.59-.388 2.885-.72 3.935M3.504 1q.01.775.056 1.469c.13 2.028.457 3.546.87 4.667C5.294 9.48 6.484 10 7 10a.5.5 0 0 1 .5.5v2.61a1 1 0 0 1-.757.97l-1.426.356a.5.5 0 0 0-.179.085L4.5 15h7l-.638-.479a.5.5 0 0 0-.18-.085l-1.425-.356a1 1 0 0 1-.757-.97V10.5A.5.5 0 0 1 9 10c.516 0 1.706-.52 2.57-2.864.413-1.12.74-2.64.87-4.667q.045-.694.056-1.469z"/></svg>';
+const HOME_WINNER_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-house" viewBox="0 0 16 16"><path d="M8.707 1.5a1 1 0 0 0-1.414 0L.646 8.146a.5.5 0 0 0 .708.708L2 8.207V13.5A1.5 1.5 0 0 0 3.5 15h9a1.5 1.5 0 0 0 1.5-1.5V8.207l.646.647a.5.5 0 0 0 .708-.708L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293zM13 7.207V13.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V7.207l5-5z"/></svg>';
+const DOOR_WINNER_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-door-closed" viewBox="0 0 16 16"><path d="M3 2a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v13h1.5a.5.5 0 0 1 0 1h-13a.5.5 0 0 1 0-1H3zm1 13h8V2H4z"/><path d="M9 9a1 1 0 1 0 2 0 1 1 0 0 0-2 0"/></svg>';
+const BARBARIDAD_WINNER_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-star" viewBox="0 0 16 16"><path d="M2.866 14.85c-.078.444.36.791.746.593l4.39-2.256 4.389 2.256c.386.198.824-.149.746-.592l-.83-4.73 3.522-3.356c.33-.314.16-.888-.282-.95l-4.898-.696L8.465.792a.513.513 0 0 0-.927 0L5.354 5.12l-4.898.696c-.441.062-.612.636-.283.95l3.523 3.356-.83 4.73zm4.905-2.767-3.686 1.894.694-3.957a.56.56 0 0 0-.163-.505L1.71 6.745l4.052-.576a.53.53 0 0 0 .393-.288L8 2.223l1.847 3.658a.53.53 0 0 0 .393.288l4.052.575-2.906 2.77a.56.56 0 0 0-.163.506l.694 3.957-3.686-1.894a.5.5 0 0 0-.461 0z"/></svg>';
+const BEER_ERROR_ICON =
+  '<svg height="200px" width="200px" version="1.1" id="_x34_" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512" xml:space="preserve" fill="#000000"><g id="SVGRepo_bgCarrier" stroke-width="0"></g><g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g><g id="SVGRepo_iconCarrier"> <g> <g> <polygon style="opacity:0.6;fill:#E7E6E1;" points="340.904,156.427 339.074,180.447 338.998,180.447 335.566,224.979 325.272,357.128 321.841,401.66 317.647,455.572 317.113,462.282 26.128,462.282 25.594,455.572 5.692,199.892 2.641,160.087 2.336,156.427 "></polygon> <path style="opacity:0.6;fill:#E7E6E1;" d="M314.596,512H29.254c-1.677,0-3.279-0.229-4.728-0.61 c-6.558-1.677-11.438-6.863-13.116-13.115c-0.991-3.584-0.839-7.55,0.61-11.362l14.107-24.63h290.986l14.336,25.164 C336.024,499.266,327.255,512,314.596,512z"></path> <polygon style="fill:#E9CB53;" points="287.436,432.589 55.807,432.589 32.05,186.112 311.192,186.112 "></polygon> <path style="opacity:0.6;fill:#E7E6E1;" d="M448.624,220.545v141.056c0,22.108-17.981,40.09-40.09,40.09h-86.699l3.459-44.544 h78.786V224.999h-68.525l3.46-44.544h69.52C430.643,180.456,448.624,198.436,448.624,220.545z"></path> <circle style="fill:#F9F9F7;" cx="56.917" cy="143.036" r="56.917"></circle> <circle style="fill:#F9F9F7;" cx="67.223" cy="56.918" r="56.917"></circle> <circle style="fill:#F9F9F7;" cx="113.835" cy="170.752" r="56.917"></circle> <circle style="fill:#F9F9F7;" cx="193.431" cy="152.935" r="56.917"></circle> <circle style="fill:#F9F9F7;" cx="254.308" cy="163.823" r="56.917"></circle> <path style="fill:#F9F9F7;" d="M284.552,71.251c0,14.564-5.49,27.909-14.564,37.898c-6.939,7.854-16.09,13.802-26.536,16.776 c-0.305,0.076-0.61,0.153-0.991,0.229c-4.728,1.297-9.684,1.983-14.793,1.983c-5.414,0-10.676-0.762-15.632-2.211 c-13.192-3.736-24.401-12.125-31.798-23.257c-0.915-1.372-1.83-2.898-2.592-4.347c-4.347-8.083-6.863-17.31-6.863-27.07 c0-10.828,2.974-20.894,8.236-29.434c9.913-16.547,27.985-27.528,48.65-27.528c28.138,0,51.472,20.36,55.97,47.201 C284.248,64.693,284.552,67.896,284.552,71.251z"></path> <path style="fill:#F9F9F7;" d="M355.393,116.394c0,15.632-6.329 29.815-16.547 40.033-7.625 7.702-17.386 13.192-28.29 15.556-3.889 0.839-7.93 1.297-12.125 1.297-15.785 0-30.044-6.406-40.415-16.852-3.126-3.127-5.872-6.634-8.159-10.523-3.66-5.948-6.253-12.582-7.396-19.75-0.229-0.915-0.381-1.754-0.381-2.669-0.382-2.287-0.534-4.728-0.534-7.092 0-2.745 0.229-5.491 0.61-8.159 3.203-22.647 19.75-41.025 41.482-46.744 4.728-1.373 9.684-2.059 14.793-2.059 7.321 0 14.259 1.373 20.665 3.965 14.793 5.643 26.613 17.462 32.332 32.332 2.689 6.482 4.062 13.421 4.062 20.742z"></path> <path style="fill:#F9F9F7;" d="M188.472,73.31c0,8.465-1.83 16.471-5.262 23.715-0.839 1.906-1.83 3.813-2.974 5.643-6.71 11.285-17.386 20.055-30.044 24.325-2.669 0.991-5.49 1.754-8.388 2.211-3.279 0.686-6.71 0.991-10.218 0.991-7.092 0-13.954-1.296-20.207-3.813-5.948-2.135-11.438-5.338-16.242-9.379-1.22-0.991-2.364-1.983-3.431-3.127-1.373-1.296-2.592-2.669-3.736-4.041-4.957-5.795-8.693-12.582-10.904-19.979-1.602-5.262-2.44-10.828-2.44-16.548 0-24.096 14.946-44.685 36.144-52.997 6.482-2.592 13.497-3.965 20.817-3.965 15.861 0 30.273 6.558 40.567 17.081 2.593 2.593 4.88 5.414 6.863 8.388 8.227 12.636 11.734 23.465 11.734 35.055z"></path> <circle style="fill:#E7E6E1;" cx="72.245" cy="243.004" r="6.929"></circle> <circle style="fill:#E7E6E1;" cx="119.757" cy="304.437" r="6.929"></circle> <circle style="fill:#E7E6E1;" cx="138.163" cy="261.52" r="6.929"></circle> <circle style="fill:#E7E6E1;" cx="195.41" cy="239.634" r="6.929"></circle> <circle style="fill:#E7E6E1;" cx="231.834" cy="291.073" r="6.929"></circle> <circle style="fill:#E7E6E1;" cx="254.308" cy="241.98" r="6.929"></circle> <polygon style="opacity:0.1;fill:#E7E6E1;" points="317.647,455.572 317.113,462.282 26.128,462.282 25.594,455.572 "></polygon> </g> <path style="opacity:0.2;fill:#FFFFFF;" d="M179.017,41.817c-1.983-2.974-4.27-5.795-6.863-8.388 c-10.294-10.523-24.706-17.081-40.567-17.081c-7.317,0-14.33,1.372-20.81,3.962C100.336,7.901,84.709,0,67.223,0 C35.788,0,10.305,25.483,10.305,56.917c0,14.945,5.805,28.501,15.226,38.657C10.153,105.764,0,123.206,0,143.036 c0,5.989,0.936,11.756,2.651,17.177l3.041,39.679l19.902,255.68l0.534,6.71l-14.107,24.63c-1.449,3.813-1.601,7.778-0.61,11.362 c1.677,6.252,6.558,11.438,13.115,13.115c1.449,0.381,3.05,0.61,4.728,0.61h175.228V19.291 C193.874,24.044,184.96,31.897,179.017,41.817z"></path> </g> </g></svg>';
 let impactChart = null;
 let lastImpactLines = [];
 let selectedImpactLineId = "all";
@@ -133,6 +161,59 @@ function formatCurrency(value) {
   return `€${num.toFixed(2)}`;
 }
 
+function createWinnerDetailBuckets() {
+  return WINNER_DETAIL_KEYS.reduce((acc, key) => {
+    acc[key] = 0;
+    return acc;
+  }, {});
+}
+
+function createErrorDetailBuckets() {
+  return ERROR_DETAIL_KEYS.reduce((acc, key) => {
+    acc[key] = 0;
+    return acc;
+  }, {});
+}
+
+function getDetailIcon(key, label) {
+  switch (key) {
+    case "normal":
+      return NORMAL_WINNER_ICON;
+    case "home":
+      return HOME_WINNER_ICON;
+    case "door":
+      return DOOR_WINNER_ICON;
+    case "barbaridad":
+      return BARBARIDAD_WINNER_ICON;
+    case "x3":
+      return "x3";
+    case "x4":
+      return "x4";
+    case "beer":
+      return BEER_ERROR_ICON;
+    default:
+      return (label || "").charAt(0).toUpperCase() || "+";
+  }
+}
+
+function formatDetailChips(detailMap, keys, labels) {
+  const chips = keys
+    .map((key) => {
+      const value = Number(detailMap[key] || 0);
+      if (value <= 0) return "";
+      const icon = getDetailIcon(key, labels[key]);
+      return `<span class="detail-chip detail-chip--${key}">
+        <span class="detail-chip__icon">${icon}</span>
+        ${value}
+      </span>`;
+    })
+    .filter(Boolean);
+  if (!chips.length) {
+    return '<span class="empty-state">No data yet.</span>';
+  }
+  return `<div class="detail-chips">${chips.join("")}</div>`;
+}
+
 function parseSets(sets) {
   if (typeof sets === "string") {
     return sets
@@ -212,6 +293,8 @@ function renderSummary(data) {
   summaryEls.wins.textContent = data.wins ?? 0;
   summaryEls.losses.textContent = data.losses ?? 0;
   summaryEls.winPct.textContent = formatPercent(data.winPct);
+  if (summaryEls.totalWinners) summaryEls.totalWinners.textContent = data.totalWinners ?? 0;
+  if (summaryEls.totalErrors) summaryEls.totalErrors.textContent = data.totalErrors ?? 0;
   summaryEls.avgWinners.textContent = formatNumber(data.avgWinners ?? 0);
   summaryEls.avgErrors.textContent = formatNumber(data.avgErrors ?? 0);
   if (summaryEls.mvpPct) {
@@ -242,7 +325,7 @@ function renderBreakdown(container, rows, opts = {}) {
     { key: "avgErrors", label: "Avg E", sortable: true }
   ];
 
-  const sortState = tableSortState.get(containerId) || { key: "matches", dir: "desc" };
+  const sortState = tableSortState.get(containerId) || { key: "wins", dir: "desc" };
   const sortedRows = [...rows].sort((a, b) => {
     const key = sortState.key;
     const dir = sortState.dir === "asc" ? 1 : -1;
@@ -309,7 +392,7 @@ function renderBreakdown(container, rows, opts = {}) {
   container.querySelectorAll("th[data-sort-key]").forEach((th) => {
     th.addEventListener("click", () => {
       const key = th.dataset.sortKey;
-      const current = tableSortState.get(containerId) || { key: "matches", dir: "desc" };
+      const current = tableSortState.get(containerId) || { key: "wins", dir: "desc" };
       const dir = current.key === key && current.dir === "desc" ? "asc" : "desc";
       tableSortState.set(containerId, { key, dir });
       renderBreakdown(container, rows, opts);
@@ -540,6 +623,8 @@ function buildScoreboardElement(match) {
     col.style.display = "";
     col.children[0].textContent = "-";
     col.children[1].textContent = "-";
+    col.children[0].classList.remove("sb-set--high");
+    col.children[1].classList.remove("sb-set--high");
   });
 
   sets.forEach((s, i) => {
@@ -554,6 +639,12 @@ function buildScoreboardElement(match) {
     const bottom = score?.t2 ?? col.children[1].textContent;
     if (shouldHideSetForFinishedMatch(match, top, bottom)) {
       col.style.display = "none";
+    }
+    const nTop = Number(top);
+    const nBottom = Number(bottom);
+    if (Number.isFinite(nTop) && Number.isFinite(nBottom) && nTop !== nBottom) {
+      const winnerEl = nTop > nBottom ? col.children[0] : col.children[1];
+      winnerEl.classList.add("sb-set--high");
     }
   });
 
@@ -621,6 +712,47 @@ function renderRecent(matches) {
     fragment.appendChild(buildRecentCard(match));
   });
   recentMatchesEl.appendChild(fragment);
+}
+
+function renderDetailCard(detailTotals) {
+  if (!detailCardsEl) return;
+  const winners = detailTotals?.winners || createWinnerDetailBuckets();
+  const errors = detailTotals?.errors || createErrorDetailBuckets();
+  const totalWinners = WINNER_DETAIL_KEYS.reduce(
+    (sum, key) => sum + Number(winners[key] || 0),
+    0
+  );
+  const totalErrors = ERROR_DETAIL_KEYS.reduce(
+    (sum, key) => sum + Number(errors[key] || 0),
+    0
+  );
+  if (!totalWinners && !totalErrors) {
+    detailCardsEl.innerHTML = '<div class="empty-state">No detailed stats yet.</div>';
+    return;
+  }
+  const winnersHtml = formatDetailChips(winners, WINNER_DETAIL_KEYS, WINNER_DETAIL_LABELS);
+  const errorsHtml = formatDetailChips(errors, ERROR_DETAIL_KEYS, ERROR_DETAIL_LABELS);
+  const impact = totalWinners - totalErrors;
+  const nameLabel = escapeHtml(playerNameEl?.textContent || "Player");
+  detailCardsEl.innerHTML = `
+    <div class="detail-card">
+      <div class="detail-card__header">
+        <span>${nameLabel}</span>
+        <div class="detail-card__badges">
+          <span class="detail-card__badge">${totalWinners}W / ${totalErrors}E</span>
+          <span class="detail-card__badge detail-card__badge--impact">${impact >= 0 ? "+" : ""}${impact}</span>
+        </div>
+      </div>
+      <div class="detail-card__section">
+        <div class="detail-section-title">Winners</div>
+        ${winnersHtml}
+      </div>
+      <div class="detail-card__section" style="margin-top:8px;">
+        <div class="detail-section-title">Errors</div>
+        ${errorsHtml}
+      </div>
+    </div>
+  `;
 }
 
 function renderImpactLines(lines) {
@@ -851,6 +983,7 @@ async function loadProfile() {
     renderCalendar(data.calendarDates || []);
     const recent = data.recentMatches || [];
     renderRecent(recent);
+    renderDetailCard(data.detailTotals || {});
     renderImpactLines(data.impactLines || []);
 
     setStatus(`Loaded profile with ${data.summary?.totalMatches ?? 0} matches.`);
