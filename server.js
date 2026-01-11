@@ -231,6 +231,29 @@ async function getCachedMatchLocations(ids) {
   return new Map(ids.map((id) => [id, matchLocationsCache.data.get(id)]));
 }
 
+async function countMatchesMissingMeta() {
+  if (!supabase) return 0;
+  try {
+    const { count, error } = await supabase
+      .from('matches')
+      .select('match_id', { count: 'exact', head: true })
+      .is('match_type_id', null)
+      .is('match_location_id', null)
+      .is('note', null)
+      .is('scheduled_at', null)
+      .is('match_level', null)
+      .is('match_cost', null);
+    if (error) {
+      console.error('Supabase missing-meta count error:', error);
+      return 0;
+    }
+    return typeof count === 'number' ? count : 0;
+  } catch (e) {
+    console.error('Supabase missing-meta count exception:', e);
+    return 0;
+  }
+}
+
 async function ensureMatchTypeByName(name) {
   if (!supabase) return null;
   const normalized = normalizeText(name);
@@ -1133,6 +1156,7 @@ app.get('/api/match/:id/history', async (req, res) => {
       matchMetaRes,
       typeOptions,
       locationOptions,
+      missingMetaCount,
     ] = await Promise.all([
       supabase
         .from('watch_events')
@@ -1153,6 +1177,7 @@ app.get('/api/match/:id/history', async (req, res) => {
         .maybeSingle(),
       fetchMatchTypeOptions(),
       fetchMatchLocationOptions(),
+      countMatchesMissingMeta(),
     ]);
 
     const { data: events, error } = eventsRes;
@@ -1212,6 +1237,7 @@ app.get('/api/match/:id/history', async (req, res) => {
       matchCost: matchMeta?.match_cost ?? null,
       matchTypeOptions: typeOptions,
       matchLocationOptions: locationOptions,
+      missingMetaCount,
     });
   } catch (e) {
     console.error('Supabase /api/match/:id/history exception:', e);
@@ -1365,6 +1391,15 @@ app.post('/api/match/:id/note', async (req, res) => {
     ? body.match_cost
     : undefined;
 
+  const applyToAllMissingRaw = Object.prototype.hasOwnProperty.call(
+    body,
+    'applyToAllMissing',
+  )
+    ? body.applyToAllMissing
+    : Object.prototype.hasOwnProperty.call(body, 'apply_to_all_missing')
+    ? body.apply_to_all_missing
+    : undefined;
+
   const matchTypeId =
     matchTypeIdRaw !== undefined ? parseNullableId(matchTypeIdRaw) : undefined;
   const matchTypeName =
@@ -1382,6 +1417,11 @@ app.post('/api/match/:id/note', async (req, res) => {
   const matchLevel =
     matchLevelRaw !== undefined ? normalizeText(matchLevelRaw) : undefined;
   const matchCost = parseNullableNumber(matchCostRaw);
+  const applyToAllMissing =
+    applyToAllMissingRaw === true ||
+    applyToAllMissingRaw === 'true' ||
+    applyToAllMissingRaw === 1 ||
+    applyToAllMissingRaw === '1';
 
   if (!supabase) {
     return res.status(500).json({ error: 'Supabase not configured' });
@@ -1458,6 +1498,37 @@ app.post('/api/match/:id/note', async (req, res) => {
       return res.status(500).json({ error: 'Failed to save match metadata' });
     }
 
+    let appliedToMissingCount = 0;
+    if (applyToAllMissing) {
+      const applyPayload = {};
+      ['note', 'match_type_id', 'match_location_id', 'scheduled_at', 'match_level', 'match_cost'].forEach(
+        (key) => {
+          if (Object.prototype.hasOwnProperty.call(payload, key)) {
+            applyPayload[key] = payload[key];
+          }
+        },
+      );
+      if (Object.keys(applyPayload).length) {
+        applyPayload.updated_at = now;
+        const { data: appliedRows, error: applyErr } = await supabase
+          .from('matches')
+          .update(applyPayload)
+          .is('note', null)
+          .is('match_type_id', null)
+          .is('match_location_id', null)
+          .is('scheduled_at', null)
+          .is('match_level', null)
+          .is('match_cost', null)
+          .neq('match_id', matchId)
+          .select('match_id');
+        if (applyErr) {
+          console.error('Supabase matches bulk apply error:', applyErr);
+        } else {
+          appliedToMissingCount = (appliedRows || []).length;
+        }
+      }
+    }
+
     const [typeOptions, locationOptions] = await Promise.all([
       fetchMatchTypeOptions(),
       fetchMatchLocationOptions(),
@@ -1472,6 +1543,8 @@ app.post('/api/match/:id/note', async (req, res) => {
       locationOptions.find((opt) => opt.id === data.match_location_id) ||
       null;
 
+    const missingMetaCount = await countMatchesMissingMeta();
+
     return res.json({
       ok: true,
       note: data.note,
@@ -1485,6 +1558,8 @@ app.post('/api/match/:id/note', async (req, res) => {
       scheduledAt: data.scheduled_at || null,
       matchTypeOptions: typeOptions,
       matchLocationOptions: locationOptions,
+      appliedToMissingCount,
+      missingMetaCount,
     });
   } catch (e) {
     console.error('Supabase /api/match/:id/note exception:', e);

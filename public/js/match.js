@@ -125,6 +125,7 @@ const state = {
   scheduledAt: null,
   matchLevel: null,
   matchCost: null,
+  missingMetaCount: 0,
   deleteMode: false,
   isDeleting: false,
   isMatchFinished: false,
@@ -195,6 +196,7 @@ const dom = {
   matchCostInput: document.getElementById("matchCostInput"),
   noteInput: document.getElementById("noteInput"),
   saveMetaBtn: document.getElementById("saveMetaBtn"),
+  applyMetaAllBtn: document.getElementById("applyMetaAllBtn"),
   gameHistoryBody: document.getElementById("gameHistoryBody"),
   gameHistoryActionHeader: document.getElementById("gameHistoryActionHeader"),
   metricsCharts: document.getElementById("metricsCharts"),
@@ -363,7 +365,13 @@ function wireEventListeners() {
   });
   dom.editMetaBtn?.addEventListener("click", () => toggleMatchMetaForm());
   dom.saveMetaBtn?.addEventListener("click", async () => {
-    await handleSaveMatchMeta();
+    const result = await handleSaveMatchMeta();
+    syncMetaApplyState(result);
+    syncAutoRefreshState();
+  });
+  dom.applyMetaAllBtn?.addEventListener("click", async () => {
+    const result = await handleSaveMatchMeta({ applyToAll: true });
+    syncMetaApplyState(result);
     syncAutoRefreshState();
   });
   dom.matchTypeSelect?.addEventListener("change", () =>
@@ -449,6 +457,25 @@ function syncAutoRefreshUi() {
     dom.livePill.style.display = show ? "inline-flex" : "none";
   }
 }
+function syncApplyMetaAllButton() {
+  if (!dom.applyMetaAllBtn) return;
+  const count = Number(state.missingMetaCount || 0);
+  const remaining = Math.max(0, count - 1);
+  if (remaining > 0) {
+    dom.applyMetaAllBtn.style.display = "inline-flex";
+    dom.applyMetaAllBtn.textContent = `Apply to ${remaining} other infoless match${
+      remaining === 1 ? "" : "es"
+    }`;
+  } else {
+    dom.applyMetaAllBtn.style.display = "none";
+  }
+}
+function syncMetaApplyState(result) {
+  if (result && typeof result.missingMetaCount === "number") {
+    state.missingMetaCount = result.missingMetaCount;
+  }
+  syncApplyMetaAllButton();
+}
 function stopAutoRefresh() {
   if (state.autoRefreshTimerId) {
     clearInterval(state.autoRefreshTimerId);
@@ -516,6 +543,8 @@ async function autoLoadFromServer(matchId, options = {}) {
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
+    state.missingMetaCount =
+      typeof data.missingMetaCount === "number" ? data.missingMetaCount : 0;
     const snapshotsFromApi = Array.isArray(data.snapshots)
       ? data.snapshots
       : [];
@@ -524,6 +553,7 @@ async function autoLoadFromServer(matchId, options = {}) {
       if (!silent) {
         setStatus("No snapshots found in DB for this match.");
       }
+      syncApplyMetaAllButton();
       syncAutoRefreshState();
       return;
     }
@@ -541,6 +571,7 @@ async function autoLoadFromServer(matchId, options = {}) {
       matchLevel: data.matchLevel,
       matchCost: data.matchCost,
     });
+    syncApplyMetaAllButton();
     showMainView();
     syncSlider();
     if (!silent) {
@@ -656,6 +687,8 @@ function handleManualLoad() {
     matchLevel: null,
     matchCost: null,
   });
+  state.missingMetaCount = 0;
+  syncApplyMetaAllButton();
   syncSlider();
   buildFromVisible();
 }
@@ -1100,6 +1133,15 @@ function renderDetailCards(detailData, playerOrder = []) {
         ERROR_DETAIL_LABELS,
       );
       const impact = totalWinners - totalErrors;
+      const winnersSectionHtml =
+        totalWinners > 0
+          ? `
+          <div class="detail-card__section">
+            <div class="detail-section-title">Winners</div>
+            ${winnersHtml}
+          </div>`
+          : "";
+      const errorsSectionMargin = winnersSectionHtml ? ' style="margin-top:8px;"' : "";
       return `
         <div class="detail-card">
           <div class="detail-card__header">
@@ -1108,11 +1150,8 @@ function renderDetailCards(detailData, playerOrder = []) {
               <span class="detail-card__badge">${totalWinners}W / ${totalErrors}E / ${impact >= 0 ? "+" : ""}${impact}</span>
             </div>
           </div>
-          <div class="detail-card__section">
-            <div class="detail-section-title">Winners</div>
-            ${winnersHtml}
-          </div>
-          <div class="detail-card__section" style="margin-top:8px;">
+          ${winnersSectionHtml}
+          <div class="detail-card__section"${errorsSectionMargin}>
             <div class="detail-section-title">Errors</div>
             ${errorsHtml}
           </div>

@@ -217,7 +217,10 @@
 
           <label for="noteInput">Match Note</label>
           <textarea id="noteInput" rows="3"></textarea>
-          <button type="button" id="saveMetaBtn">Save match info</button>
+          <div class="match-meta-actions" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" id="saveMetaBtn">Save match info</button>
+            <button type="button" id="applyMetaAllBtn" class="pill-btn pill-btn--ghost" style="display:none;">Apply to infoless matches</button>
+          </div>
         </div>
       </div>
 

@@ -109,9 +109,15 @@ function buildTextTag(label, extraClass = "") {
   return `<span class="${classes.join(" ")}">${safeLabel}</span>`;
 }
 
+function formatMatchIdLabel(matchId) {
+  const str = matchId == null ? "" : String(matchId);
+  const tail = str ? str.slice(-4) : "";
+  return `#${tail}`;
+}
+
 function renderMetaTags(match) {
   const tags = [];
-  const matchIdLabel = `#${match.matchId}`;
+  const matchIdLabel = formatMatchIdLabel(match.matchId);
   tags.push(buildTextTag(matchIdLabel));
 
   if (match.winnerTeam === 2) {

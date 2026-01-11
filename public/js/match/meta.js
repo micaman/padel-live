@@ -254,13 +254,17 @@ export function createMetaHandlers({ state, dom, setStatus, setError, clearError
     }
   }
 
-  async function handleSaveMatchMeta() {
-    if (!state.currentMatchId) return;
+  async function handleSaveMatchMeta(options = {}) {
+    if (!state.currentMatchId) return null;
+    const applyToAll = Boolean(options.applyToAll);
     clearError?.();
 
     const payload = {
       note: dom.noteInput?.value ?? ""
     };
+    if (applyToAll) {
+      payload.applyToAllMissing = true;
+    }
 
     if (dom.matchTypeSelect) {
       const selection = dom.matchTypeSelect.value;
@@ -364,10 +368,28 @@ export function createMetaHandlers({ state, dom, setStatus, setError, clearError
         matchCost: data.matchCost ?? payload.matchCost ?? state.matchCost
       });
       toggleMatchMetaForm(false);
-      setStatus?.("Match info saved.");
+      const appliedToMissingCount = Number(data.appliedToMissingCount || 0);
+      const missingMetaCount =
+        typeof data.missingMetaCount === "number"
+          ? data.missingMetaCount
+          : state.missingMetaCount ?? 0;
+      state.missingMetaCount = missingMetaCount;
+      if (applyToAll) {
+        const suffix =
+          appliedToMissingCount > 0
+            ? `Applied to ${appliedToMissingCount} other match${
+                appliedToMissingCount === 1 ? "" : "es"
+              }.`
+            : "No other infoless matches found.";
+        setStatus?.(`Match info saved. ${suffix}`);
+      } else {
+        setStatus?.("Match info saved.");
+      }
+      return { appliedToMissingCount, missingMetaCount };
     } catch (err) {
       console.error("Failed to save match info:", err);
       setError?.(`Failed to save match info: ${err.message}`);
+      return null;
     }
   }
 
