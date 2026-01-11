@@ -2814,6 +2814,11 @@ app.get('/match/:id', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'match.html'));
 });
 
+// Match animation page
+app.get('/match/:id/animation', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'match-animation.html'));
+});
+
 // Player profile page
 app.get('/player/:id', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'player.html'));

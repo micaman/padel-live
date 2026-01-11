@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Padel Match Animation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #0f1118;
+      --panel: #161a28;
+      --panel-border: #22283b;
+      --accent: #f7c948;
+      --muted: #a9afc7;
+      --text: #f5f6fb;
+      --danger: #ff6b6b;
+      --success: #57d657;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 20%, #1b1f31, #0f1118 65%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 20px;
+      display: flex;
+      justify-content: center;
+    }
+    .page {
+      width: 100%;
+      max-width: 1080px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: 0.02em;
+    }
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    a:hover { text-decoration: underline; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+    .court-wrapper {
+      position: relative;
+      min-height: 620px;
+    }
+    .status {
+      font-size: 13px;
+      color: var(--muted);
+      margin: 6px 0 0;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    button {
+      border: 1px solid var(--accent);
+      background: transparent;
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      transition: all 0.1s ease;
+    }
+    button:hover { background: rgba(247,201,72,0.12); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    input[type="range"] { width: 140px; }
+    .info {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+      margin: 10px 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .info strong { color: var(--text); }
+    .point-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      max-height: 520px;
+      overflow: auto;
+    }
+    .point-list li {
+      padding: 10px;
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: border-color 0.12s ease, background 0.12s ease;
+    }
+    .point-list li.active {
+      border-color: var(--accent);
+      background: rgba(247,201,72,0.08);
+    }
+    .pill {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      border: 1px solid var(--panel-border);
+      color: var(--muted);
+    }
+    .pill--win { border-color: var(--success); color: var(--success); }
+    .pill--err { border-color: var(--danger); color: var(--danger); }
+    .muted { color: var(--muted); }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.2/lib/p5.min.js"></script>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <a id="backLink" href="/">&larr; Match</a>
+      <h1>Match Animation</h1>
+    </header>
+
+    <div class="layout">
+      <div class="panel">
+        <div class="controls">
+          <button id="prevBtn" type="button">&larr; Prev</button>
+          <button id="playBtn" type="button">Pause</button>
+          <button id="nextBtn" type="button">Next &rarr;</button>
+          <label>Speed <input id="speedInput" type="range" min="0.5" max="2.5" step="0.1" value="1.0"></label>
+          <span class="pill" id="pointCounter">Point 0 / 0</span>
+        </div>
+        <div class="info">
+          <div><strong>Server:</strong> <span id="serverLabel" class="muted">-</span></div>
+          <div><strong>Duration:</strong> <span id="durationLabel" class="muted">-</span></div>
+          <div><strong>Result:</strong> <span id="resultLabel" class="muted">-</span></div>
+          <div><strong>Score:</strong> <span id="scoreLabel" class="muted">-</span></div>
+        </div>
+        <div class="court-wrapper" id="courtWrapper"></div>
+        <div class="status" id="status">Loading…</div>
+      </div>
+
+      <div class="panel">
+        <h3 style="margin-top:0;">Points</h3>
+        <ul id="pointList" class="point-list"></ul>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/js/match-animation.js"></script>
+</body>
+</html>

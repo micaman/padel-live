@@ -203,6 +203,7 @@ const dom = {
   metricsEmpty: document.getElementById("metricsEmpty"),
   prevMatchLink: document.getElementById("prevMatchLink"),
   nextMatchLink: document.getElementById("nextMatchLink"),
+  animationLink: document.getElementById("animationLink"),
   playerMomentsList: document.getElementById("playerMomentsList"),
   teamMomentsList: document.getElementById("teamMomentsList"),
   adminActions: document.getElementById("adminActions"),
@@ -398,6 +399,7 @@ function initializeFromUrl() {
   const parts = window.location.pathname.split("/");
   const matchId = parts[parts.length - 1] || null;
   state.currentMatchId = matchId;
+  setAnimationLink(matchId);
   const params = new URLSearchParams(window.location.search);
   state.deleteMode = params.has("delete");
   updateDeleteModeUi();
@@ -408,6 +410,15 @@ function initializeFromUrl() {
   }
   setStatus(`Loading match ${matchId}...`);
   autoLoadFromServer(matchId);
+}
+function setAnimationLink(matchId) {
+  if (!dom.animationLink) return;
+  if (matchId) {
+    dom.animationLink.href = `/match/${matchId}/animation`;
+    dom.animationLink.style.display = "inline";
+  } else {
+    dom.animationLink.style.display = "none";
+  }
 }
 function normalizeEventsPayload(events, snapshotsFallback = []) {
   if (Array.isArray(events) && events.length) {
