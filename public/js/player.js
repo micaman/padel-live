@@ -10,6 +10,7 @@ const errorEl = document.getElementById("error");
 const playerNameEl = document.getElementById("playerName");
 const subtitleEl = document.getElementById("playerSubtitle");
 const recentMatchesEl = document.getElementById("recentMatches");
+const gamesListEl = document.getElementById("gamesList");
 const detailCardsEl = document.getElementById("playerDetailCards");
 
 const summaryEls = {
@@ -44,6 +45,8 @@ const financeEls = {
 };
 
 const tableSortState = new Map();
+const gamesSortState = { key: "finishedAt", dir: "desc" };
+let gamesCache = null;
 
 const calendarContainer = document.getElementById("matchCalendar");
 const MOBILE_BREAKPOINT = 520;
@@ -714,6 +717,163 @@ function renderRecent(matches) {
   recentMatchesEl.appendChild(fragment);
 }
 
+function renderGames(games) {
+  if (!gamesListEl) return;
+  gamesListEl.innerHTML = "";
+  if (Array.isArray(games)) {
+    const rows = [...games];
+    if (!rows.length) {
+      gamesListEl.innerHTML = '<div class="empty-state">No games yet.</div>';
+      gamesCache = { rows: [], bestVals: null, worstVals: null };
+      return;
+    }
+    const mappedRows = rows.map((row) => {
+      const finishedAtTs = row.finishedAt ? new Date(row.finishedAt).getTime() : 0;
+      const resultScore = row.result === "W" ? 1 : row.result === "L" ? 0 : null;
+      const forcedErrors = Number(row.errorsDetail?.forced || 0);
+      const beerErrors = Number(row.errorsDetail?.beer || 0);
+      return { ...row, finishedAtTs, resultScore, forcedErrors, beerErrors };
+    });
+    const bestVals = {
+      result: Math.max(...mappedRows.map((r) => (r.resultScore != null ? r.resultScore : -Infinity))),
+      winners: Math.max(...mappedRows.map((r) => Number(r.winners || 0))),
+      errors: Math.min(...mappedRows.map((r) => (Number.isFinite(r.errors) ? r.errors : Infinity))),
+      forcedErrors: Math.min(
+        ...mappedRows.map((r) => (Number.isFinite(r.forcedErrors) ? r.forcedErrors : Infinity))),
+      beerErrors: Math.min(
+        ...mappedRows.map((r) => (Number.isFinite(r.beerErrors) ? r.beerErrors : Infinity))),
+    };
+    const worstVals = {
+      result: Math.min(...mappedRows.map((r) => (r.resultScore != null ? r.resultScore : Infinity))),
+      winners: Math.min(...mappedRows.map((r) => Number(r.winners || 0))),
+      errors: Math.max(...mappedRows.map((r) => (Number.isFinite(r.errors) ? r.errors : -Infinity))),
+      forcedErrors: Math.max(
+        ...mappedRows.map((r) => (Number.isFinite(r.forcedErrors) ? r.forcedErrors : -Infinity))),
+      beerErrors: Math.max(
+        ...mappedRows.map((r) => (Number.isFinite(r.beerErrors) ? r.beerErrors : -Infinity))),
+    };
+    gamesCache = { rows: mappedRows, bestVals, worstVals };
+  }
+
+  if (!gamesCache || !Array.isArray(gamesCache.rows) || !gamesCache.rows.length) {
+    gamesListEl.innerHTML = '<div class="empty-state">No games yet.</div>';
+    return;
+  }
+  const mappedRows = [...gamesCache.rows];
+  const bestVals = gamesCache.bestVals || {};
+  const worstVals = gamesCache.worstVals || {};
+
+  const formatDetailSummary = (detailMap, labels, skipKey) => {
+    if (!detailMap) return "";
+    const parts = Object.keys(detailMap)
+      .filter((key) => key !== skipKey)
+      .map((key) => {
+        const val = Number(detailMap[key] || 0);
+        if (!val) return "";
+        const label = labels[key] || key;
+        return `${label} (${val})`;
+      })
+      .filter(Boolean);
+    return parts.length ? parts.join(", ") : "";
+  };
+
+  const sortKey = gamesSortState.key;
+  const dir = gamesSortState.dir === "asc" ? 1 : -1;
+  mappedRows.sort((a, b) => {
+    const valA =
+      sortKey === "finishedAt" ? a.finishedAtTs : Number.isFinite(a[sortKey]) ? a[sortKey] : 0;
+    const valB =
+      sortKey === "finishedAt" ? b.finishedAtTs : Number.isFinite(b[sortKey]) ? b[sortKey] : 0;
+    if (valA === valB) return 0;
+    return valA > valB ? dir : -dir;
+  });
+
+  const html = `
+    <table>
+      <thead>
+        <tr>
+          <th data-sort-key="finishedAt">Match</th>
+          <th data-sort-key="resultScore">Result</th>
+          <th data-sort-key="winners" class="number">Winners</th>
+          <th data-sort-key="errors" class="number">Errors</th>
+          <th>Specials</th>
+          <th data-sort-key="forcedErrors" class="number">Forced Errors</th>
+          <th data-sort-key="beerErrors" class="number">Beers</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${mappedRows
+          .map((row) => {
+            const link = row.matchId
+              ? `<a class="player-link" href="/match/${row.matchId}">Match ${row.matchId}</a>`
+              : "Match";
+            const date = row.finishedAt ? `<div class="text-muted">${formatDate(row.finishedAt)}</div>` : "";
+            const result = row.result === "W" ? "Win" : row.result === "L" ? "Loss" : "-";
+            const specialWDetail = formatDetailSummary(row.winnersDetail, WINNER_DETAIL_LABELS, "normal");
+            const forcedErrDetail = Number(row.errorsDetail?.forced || 0);
+            const beerErrDetail = Number(row.errorsDetail?.beer || 0);
+            const classFor = (key, value) => {
+              if (!Number.isFinite(value)) return "";
+              if (key === "result") {
+                if (value === bestVals.result) return "best-cell-good";
+                if (value === worstVals.result) return "best-cell-bad";
+                return "";
+              }
+              if (key === "winners") {
+                if (value === bestVals.winners) return "best-cell-good";
+                if (value === worstVals.winners) return "best-cell-bad";
+                return "";
+              }
+              if (key === "errors") {
+                if (value === bestVals.errors) return "best-cell-good";
+                if (value === worstVals.errors) return "best-cell-bad";
+                return "";
+              }
+              if (key === "forcedErrors") {
+                if (value === bestVals.forcedErrors) return "best-cell-good";
+                if (value === worstVals.forcedErrors) return "best-cell-bad";
+                return "";
+              }
+              if (key === "beerErrors") {
+                if (value === bestVals.beerErrors) return "best-cell-good";
+                if (value === worstVals.beerErrors) return "best-cell-bad";
+                return "";
+              }
+              return "";
+            };
+            return `
+              <tr>
+                <td>${link}${date}</td>
+                <td class="${classFor("result", row.resultScore)}">${result}</td>
+                <td class="number ${classFor("winners", row.winners)}">${row.winners ?? 0}</td>
+                <td class="number ${classFor("errors", row.errors)}">${row.errors ?? 0}</td>
+                <td>${specialWDetail || "-"}</td>
+                <td class="number ${classFor("forcedErrors", forcedErrDetail)}">${forcedErrDetail}</td>
+                <td class="number ${classFor("beerErrors", beerErrDetail)}">${beerErrDetail}</td>
+              </tr>
+            `;
+          })
+          .join("")}
+      </tbody>
+    </table>
+  `;
+  gamesListEl.innerHTML = html;
+
+  gamesListEl.querySelectorAll("th[data-sort-key]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sortKey;
+      if (!key) return;
+      if (gamesSortState.key === key) {
+        gamesSortState.dir = gamesSortState.dir === "asc" ? "desc" : "asc";
+      } else {
+        gamesSortState.key = key;
+        gamesSortState.dir = "desc";
+      }
+      renderGames();
+    });
+  });
+}
+
 function renderDetailCard(detailTotals) {
   if (!detailCardsEl) return;
   const winners = detailTotals?.winners || createWinnerDetailBuckets();
@@ -983,6 +1143,7 @@ async function loadProfile() {
     renderCalendar(data.calendarDates || []);
     const recent = data.recentMatches || [];
     renderRecent(recent);
+    renderGames(data.games || []);
     renderDetailCard(data.detailTotals || {});
     renderImpactLines(data.impactLines || []);
 

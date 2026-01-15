@@ -197,6 +197,15 @@ function normalizeWinnerDetail(detailRaw) {
   return WINNER_DETAIL_KEYS.includes(detail) ? detail : "normal";
 }
 
+function outcomeFxDuration(outcome) {
+  if (!outcome) return 2000;
+  if (outcome.eventType === "winner") {
+    const detail = normalizeWinnerDetail(outcome.detailKey ?? outcome.detail);
+    return detail !== "normal" ? 6000 : 2500;
+  }
+  return 2000;
+}
+
 function buildPointsFromSnapshots(snapshots) {
   const points = [];
   const times = computeRelativePointTimes(snapshots);
@@ -980,6 +989,7 @@ function buildPathSegments(hitterIdx, startTime, points, remaining, outcome, opt
       duration: dur,
       terminal: idx === points.length - 1 ? pt.terminal !== false : false,
       outcome: idx === points.length - 1 ? outcome : undefined,
+      slowmoFactor: pt.slowmoFactor ?? options.slowmoFactor,
     });
     t += dur;
     current = toNorm;
@@ -1017,7 +1027,7 @@ function buildSpecialWinnerSegments(detail, hitterIdx, startTime, remaining, out
       [bounce, wall, returnPos],
       remaining,
       outcome,
-      { durationMultiplier: 1 },
+      { durationMultiplier: 1, slowmoFactor: 0.35 },
     );
   }
   if (detailKey === "x3") {
@@ -1041,7 +1051,7 @@ function buildSpecialWinnerSegments(detail, hitterIdx, startTime, remaining, out
       [bounce, wall, exit],
       remaining,
       outcome,
-      { durationMultiplier: 1.1 },
+      { durationMultiplier: 1.1, slowmoFactor: 0.35 },
     );
   }
   if (detailKey === "x4") {
@@ -1058,7 +1068,7 @@ function buildSpecialWinnerSegments(detail, hitterIdx, startTime, remaining, out
       [bounce, exit],
       remaining,
       outcome,
-      { durationMultiplier: 1.05 },
+      { durationMultiplier: 1.05, slowmoFactor: 0.35 },
     );
   }
   if (detailKey === "door") {
@@ -1084,7 +1094,7 @@ function buildSpecialWinnerSegments(detail, hitterIdx, startTime, remaining, out
       [softBounce, exit],
       remaining,
       outcome,
-      { durationMultiplier: 1.15 },
+      { durationMultiplier: 1.15, slowmoFactor: 0.35 },
     );
   }
   return null;
@@ -1107,8 +1117,9 @@ function finishPoint() {
       : pt.durationSec * BALL_SPEED_MULT;
   state.currentTime = doneTime;
   state.outcomeStartMs = state.outcomeStartMs ?? performance.now();
+  const fxDur = outcomeFxDuration(pt.outcome);
   state.effectEndMs =
-    pt.outcome.eventType === "winner" ? 1200 : 2000;
+    state.effectEndMs != null ? Math.max(state.effectEndMs, fxDur) : fxDur;
 }
 
 function advanceAfterFx() {
@@ -1152,7 +1163,10 @@ function resetPlaybackForPoint() {
 
 function advanceTime(deltaSec) {
   if (!state.playing) return;
-  state.currentTime += deltaSec * state.speed;
+  const seg = activeSegment(state.currentTime);
+  const slowmoFactor =
+    seg?.slowmoFactor && seg.slowmoFactor > 0 ? seg.slowmoFactor : 1;
+  state.currentTime += deltaSec * state.speed * slowmoFactor;
   const pt = state.points[state.currentPointIndex];
   const doneTime =
     state.currentPointAnimDuration != null
@@ -1232,8 +1246,7 @@ function drawBall(p) {
   if (!seg) return;
   if (seg.terminal && seg.outcome && state.outcomeStartMs == null) {
     state.outcomeStartMs = performance.now();
-    state.effectEndMs =
-      seg.outcome.eventType === "winner" ? 12000 : 2000; // ms
+    state.effectEndMs = outcomeFxDuration(seg.outcome); // ms
   }
   const from = seg.fromNorm
     ? targetPosPx({ norm: seg.fromNorm }, p)
@@ -1287,7 +1300,23 @@ function chooseEffectStyle() {
 
 function drawOutcomeFx(p, seg, x, y) {
   const isWinner = seg.outcome.eventType === "winner";
-  const label = isWinner ? "WINNER" : "ERROR";
+  const detailKey = isWinner
+    ? normalizeWinnerDetail(seg.outcome.detailKey ?? seg.outcome.detail)
+    : "normal";
+  const detailLabelMap = {
+    normal: "",
+    home: "BRING IT HOME",
+    x3: "OUT X3",
+    x4: "OUT X4",
+    door: "OUT BY THE DOOR",
+    barbaridad: "QUE BARBARIDAD",
+  };
+  const detailText =
+    detailKey && detailKey !== "normal"
+      ? detailLabelMap[detailKey] || detailKey.toUpperCase()
+      : "";
+  const label =
+    isWinner && detailText ? `${detailText}` : isWinner ? "WINNER" : "ERROR";
   const baseColor = isWinner ? [87, 214, 87] : [255, 107, 107];
   const elapsed =
     state.outcomeStartMs != null ? performance.now() - state.outcomeStartMs : 0;

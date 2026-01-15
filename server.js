@@ -437,6 +437,39 @@ function accumulateDetailTotalsForPlayer(snapshots, playerIndex, totals) {
   }
 }
 
+function computeDetailCountsForPlayer(snapshots, playerIndex) {
+  const totals = {
+    winners: createWinnerDetailBuckets(),
+    errors: createErrorDetailBuckets(),
+    totalWinners: 0,
+    totalErrors: 0,
+  };
+  if (!Array.isArray(snapshots) || snapshots.length < 2) return totals;
+  if (playerIndex == null) return totals;
+  for (let i = 1; i < snapshots.length; i++) {
+    const prev = snapshots[i - 1] || {};
+    const curr = snapshots[i] || {};
+    const extraInfo = getExtraInfoFromSnapshotServer(curr);
+    const prevPlayers = Array.isArray(prev.players) ? prev.players : [];
+    const currPlayers = Array.isArray(curr.players) ? curr.players : [];
+    const prevStats = prevPlayers[playerIndex] || {};
+    const currStats = currPlayers[playerIndex] || {};
+    const winnerDiff = Number(currStats.winners || 0) - Number(prevStats.winners || 0);
+    const errorDiff = Number(currStats.errors || 0) - Number(prevStats.errors || 0);
+    if (winnerDiff > 0) {
+      const key = normalizeWinnerDetail(extraInfo);
+      totals.winners[key] = (totals.winners[key] || 0) + winnerDiff;
+      totals.totalWinners += winnerDiff;
+    }
+    if (errorDiff > 0) {
+      const key = normalizeErrorDetail(extraInfo);
+      totals.errors[key] = (totals.errors[key] || 0) + errorDiff;
+      totals.totalErrors += errorDiff;
+    }
+  }
+  return totals;
+}
+
 async function fetchMatchDurations(matchIds) {
   const result = new Map();
   if (!supabase || !Array.isArray(matchIds) || !matchIds.length) return result;
@@ -2075,6 +2108,7 @@ app.get('/api/player/:id/profile', async (req, res) => {
     const recentMatches = [];
     const impactTimeline = [];
     const impactLines = [];
+    const games = [];
     const matchTimestampMap = new Map();
     const detailTotals = {
       winners: createWinnerDetailBuckets(),
@@ -2480,6 +2514,28 @@ app.get('/api/player/:id/profile', async (req, res) => {
       const statIndex = teamSlotToIndex(membership?.team, membership?.slot);
       const snapshots = impactHistory.get(matchId) || [];
       accumulateDetailTotalsForPlayer(snapshots, statIndex, detailTotals);
+      const matchDetailCounts = computeDetailCountsForPlayer(snapshots, statIndex);
+      const totalWinners = matchDetailCounts.totalWinners;
+      const totalErrors = matchDetailCounts.totalErrors;
+      const specialWinners = Math.max(
+        0,
+        totalWinners - Number(matchDetailCounts.winners?.normal || 0),
+      );
+      const specialErrors = Math.max(
+        0,
+        totalErrors - Number(matchDetailCounts.errors?.unforced || 0),
+      );
+      games.push({
+        matchId,
+        finishedAt: matchTimestampMap.get(matchId) || null,
+        result: isWin ? 'W' : isLoss ? 'L' : '',
+        winners: totalWinners,
+        errors: totalErrors,
+        specialWinners,
+        specialErrors,
+        winnersDetail: matchDetailCounts.winners,
+        errorsDetail: matchDetailCounts.errors,
+      });
       const setBuckets = new Map();
       const rawSetRecords = [];
       for (const raw of snapshots) {
@@ -2554,6 +2610,7 @@ app.get('/api/player/:id/profile', async (req, res) => {
     payload.impactLines = impactLines.slice(0, IMPACT_SET_LIMIT);
     payload.recentMatches = recentMatches.slice(0, 10);
     payload.detailTotals = detailTotals;
+    payload.games = games;
 
     return res.json(payload);
   } catch (e) {
