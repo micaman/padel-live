@@ -116,6 +116,32 @@ function parseNullableDate(raw) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+function parseTimecodeToSeconds(raw) {
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.max(0, Math.round(raw));
+  }
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) {
+    return Math.max(0, Number(trimmed));
+  }
+  const parts = trimmed.split(':').map((part) => part.trim());
+  if (!parts.length || parts.length > 3) return null;
+  let total = 0;
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) return null;
+    total = total * 60 + Number(part);
+  }
+  return Number.isFinite(total) ? Math.max(0, total) : null;
+}
+
+function parseNullableTimecode(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === '') return null;
+  return parseTimecodeToSeconds(raw);
+}
+
 function formatMatchTypeRow(row) {
   if (!row) return null;
   return {
@@ -468,6 +494,128 @@ function computeDetailCountsForPlayer(snapshots, playerIndex) {
     }
   }
   return totals;
+}
+
+function computeRelativePointTimesServer(snaps) {
+  const times = [];
+  let base = null;
+  let last = 0;
+  for (const snap of snaps) {
+    const raw = Number(snap?.timestamp);
+    if (Number.isFinite(raw)) {
+      if (base == null) base = raw;
+      last = raw - base;
+      times.push(last);
+    } else {
+      times.push(times.length ? last : times.length);
+    }
+  }
+  return times;
+}
+
+function collectPointEventsServer(snaps) {
+  const events = [];
+  for (let i = 1; i < snaps.length; i++) {
+    const prev = snaps[i - 1];
+    const curr = snaps[i];
+    const extraInfo = getExtraInfoFromSnapshotServer(curr);
+    const prevPlayers = Array.isArray(prev.players) ? prev.players : [];
+    const currPlayers = Array.isArray(curr.players) ? curr.players : [];
+    for (let pIdx = 0; pIdx < 4; pIdx++) {
+      const prevStats = prevPlayers[pIdx] || { winners: 0, errors: 0 };
+      const currStats = currPlayers[pIdx] || { winners: 0, errors: 0 };
+      const wDiff = Number(currStats.winners || 0) - Number(prevStats.winners || 0);
+      const eDiff = Number(currStats.errors || 0) - Number(prevStats.errors || 0);
+      const playerName = currPlayers[pIdx]?.name || null;
+      if (wDiff > 0) {
+        events.push({
+          index: i,
+          playerIndex: pIdx,
+          playerName,
+          team: pIdx < 2 ? 1 : 2,
+          eventType: 'winner',
+          detail: extraInfo,
+        });
+      }
+      if (eDiff > 0) {
+        events.push({
+          index: i,
+          playerIndex: pIdx,
+          playerName,
+          team: pIdx < 2 ? 1 : 2,
+          eventType: 'error',
+          detail: extraInfo,
+        });
+      }
+    }
+  }
+  return events;
+}
+
+function buildHighlightCutsFromSnapshots(snaps, baseVideoStart = 0) {
+  if (!Array.isArray(snaps) || snaps.length < 2) return [];
+  const times = computeRelativePointTimesServer(snaps);
+  const events = collectPointEventsServer(snaps);
+  const eventsByIndex = new Map();
+  for (const ev of events) {
+    if (!eventsByIndex.has(ev.index)) eventsByIndex.set(ev.index, []);
+    eventsByIndex.get(ev.index).push(ev);
+  }
+
+  const segments = new Map();
+  for (const [index, eventsForPoint] of eventsByIndex.entries()) {
+    const winnerEvent = eventsForPoint.find((ev) => ev.eventType === 'winner');
+    if (!winnerEvent) continue;
+    const startOffset = times[index - 1] ?? 0;
+    const endOffset = times[index] ?? startOffset;
+    const playerLabel =
+      winnerEvent.playerName || `P${winnerEvent.playerIndex + 1}`;
+    const label = `${playerLabel} Winner`;
+    segments.set(index, {
+      kind: 'winner',
+      index,
+      team: winnerEvent.team,
+      playerIndex: winnerEvent.playerIndex,
+      label,
+      detail: winnerEvent.detail ?? null,
+      startSec: Math.max(0, Math.round(baseVideoStart + startOffset)),
+      endSec: Math.max(0, Math.round(baseVideoStart + endOffset)),
+      isLongest: false,
+    });
+  }
+
+  let longestIdx = null;
+  let longestDuration = -Infinity;
+  for (let i = 1; i < times.length; i++) {
+    const duration = Math.max(0, (times[i] ?? 0) - (times[i - 1] ?? 0));
+    if (duration > longestDuration) {
+      longestDuration = duration;
+      longestIdx = i;
+    }
+  }
+
+  if (longestIdx != null) {
+    const existing = segments.get(longestIdx);
+    if (existing) {
+      existing.isLongest = true;
+    } else {
+      const startOffset = times[longestIdx - 1] ?? 0;
+      const endOffset = times[longestIdx] ?? startOffset;
+      segments.set(longestIdx, {
+        kind: 'longest',
+        index: longestIdx,
+        team: null,
+        playerIndex: null,
+        label: 'Longest point',
+        detail: null,
+        startSec: Math.max(0, Math.round(baseVideoStart + startOffset)),
+        endSec: Math.max(0, Math.round(baseVideoStart + endOffset)),
+        isLongest: true,
+      });
+    }
+  }
+
+  return Array.from(segments.values()).sort((a, b) => a.index - b.index);
 }
 
 async function fetchMatchDurations(matchIds) {
@@ -1203,11 +1351,11 @@ app.get('/api/match/:id/history', async (req, res) => {
         .eq('match_id', matchId)
         .order('team', { ascending: true })
         .order('slot', { ascending: true }),
-      supabase
-        .from('matches')
-        .select('note, match_type_id, match_location_id, status, winner_team, finished_at, scheduled_at, match_level, match_cost')
-        .eq('match_id', matchId)
-        .maybeSingle(),
+        supabase
+          .from('matches')
+          .select('note, match_type_id, match_location_id, status, winner_team, finished_at, scheduled_at, match_level, match_cost, youtube_url, youtube_start_time')
+          .eq('match_id', matchId)
+          .maybeSingle(),
       fetchMatchTypeOptions(),
       fetchMatchLocationOptions(),
       countMatchesMissingMeta(),
@@ -1266,14 +1414,87 @@ app.get('/api/match/:id/history', async (req, res) => {
       winnerTeam: matchMeta?.winner_team ?? null,
       finishedAt: matchMeta?.finished_at || null,
       scheduledAt: matchMeta?.scheduled_at || null,
-      matchLevel: matchMeta?.match_level || null,
-      matchCost: matchMeta?.match_cost ?? null,
-      matchTypeOptions: typeOptions,
+        matchLevel: matchMeta?.match_level || null,
+        matchCost: matchMeta?.match_cost ?? null,
+        youtubeUrl: matchMeta?.youtube_url || null,
+        youtubeStartTime: matchMeta?.youtube_start_time ?? null,
+        matchTypeOptions: typeOptions,
       matchLocationOptions: locationOptions,
       missingMetaCount,
     });
   } catch (e) {
     console.error('Supabase /api/match/:id/history exception:', e);
+    return res.status(500).json({ error: 'Unexpected error' });
+  }
+});
+
+// Export highlights cut list for a match
+app.get('/api/match/:id/highlights/export', async (req, res) => {
+  const matchId = String(req.params.id);
+
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  const startOverrideRaw =
+    req.query.start != null ? String(req.query.start) : undefined;
+  const startOverride = parseNullableTimecode(startOverrideRaw);
+  if (
+    startOverrideRaw !== undefined &&
+    startOverrideRaw !== null &&
+    String(startOverrideRaw).trim() !== '' &&
+    startOverride == null
+  ) {
+    return res.status(400).json({ error: 'Invalid start time override' });
+  }
+
+  try {
+    const [eventsRes, matchMetaRes] = await Promise.all([
+      supabase
+        .from('watch_events')
+        .select('id, raw, watch_timestamp, received_at')
+        .eq('match_id', matchId)
+        .order('watch_timestamp', { ascending: true, nullsFirst: true })
+        .order('id', { ascending: true }),
+      supabase
+        .from('matches')
+        .select('youtube_url, youtube_start_time')
+        .eq('match_id', matchId)
+        .maybeSingle(),
+    ]);
+
+    if (eventsRes.error) {
+      console.error('Supabase watch_events select error (highlights):', eventsRes.error);
+      return res.status(500).json({ error: 'Failed to load match history' });
+    }
+
+    if (matchMetaRes.error && matchMetaRes.error.code !== 'PGRST116') {
+      console.error('Supabase matches select error (highlights):', matchMetaRes.error);
+      return res.status(500).json({ error: 'Failed to load match metadata' });
+    }
+
+    const youtubeUrl = matchMetaRes.data?.youtube_url || null;
+    const youtubeStartTime = matchMetaRes.data?.youtube_start_time ?? null;
+    const baseVideoStart =
+      Number.isFinite(startOverride) ? startOverride : Number(youtubeStartTime || 0);
+
+    const filtered = (eventsRes.data || []).filter(
+      (event) => !isStatusOnlyEvent(event.raw),
+    );
+    const snapshots = filtered.map((event) => event.raw).filter(Boolean);
+    const cuts = buildHighlightCutsFromSnapshots(snapshots, baseVideoStart);
+
+    return res.json({
+      matchId,
+      youtubeUrl,
+      youtubeStartTime,
+      baseVideoStart,
+      cuts,
+      pointCount: Math.max(0, snapshots.length - 1),
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error('/api/match/:id/highlights/export exception:', e);
     return res.status(500).json({ error: 'Unexpected error' });
   }
 });
@@ -1424,6 +1645,21 @@ app.post('/api/match/:id/note', async (req, res) => {
     ? body.match_cost
     : undefined;
 
+  const youtubeUrlRaw = Object.prototype.hasOwnProperty.call(body, 'youtubeUrl')
+    ? body.youtubeUrl
+    : Object.prototype.hasOwnProperty.call(body, 'youtube_url')
+    ? body.youtube_url
+    : undefined;
+
+  const youtubeStartTimeRaw = Object.prototype.hasOwnProperty.call(
+    body,
+    'youtubeStartTime',
+  )
+    ? body.youtubeStartTime
+    : Object.prototype.hasOwnProperty.call(body, 'youtube_start_time')
+    ? body.youtube_start_time
+    : undefined;
+
   const applyToAllMissingRaw = Object.prototype.hasOwnProperty.call(
     body,
     'applyToAllMissing',
@@ -1450,11 +1686,23 @@ app.post('/api/match/:id/note', async (req, res) => {
   const matchLevel =
     matchLevelRaw !== undefined ? normalizeText(matchLevelRaw) : undefined;
   const matchCost = parseNullableNumber(matchCostRaw);
+  const youtubeUrl =
+    youtubeUrlRaw !== undefined ? normalizeText(youtubeUrlRaw) : undefined;
+  const youtubeStartTime = parseNullableTimecode(youtubeStartTimeRaw);
   const applyToAllMissing =
     applyToAllMissingRaw === true ||
     applyToAllMissingRaw === 'true' ||
     applyToAllMissingRaw === 1 ||
     applyToAllMissingRaw === '1';
+
+  if (
+    youtubeStartTimeRaw !== undefined &&
+    youtubeStartTimeRaw !== null &&
+    String(youtubeStartTimeRaw).trim() !== '' &&
+    youtubeStartTime == null
+  ) {
+    return res.status(400).json({ error: 'Invalid youtubeStartTime value' });
+  }
 
   if (!supabase) {
     return res.status(500).json({ error: 'Supabase not configured' });
@@ -1511,20 +1759,30 @@ app.post('/api/match/:id/note', async (req, res) => {
       payload.match_level = matchLevel;
     }
 
-    if (matchCost !== undefined) {
-      updatedFields++;
-      payload.match_cost = matchCost;
-    }
+  if (matchCost !== undefined) {
+    updatedFields++;
+    payload.match_cost = matchCost;
+  }
+
+  if (youtubeUrl !== undefined) {
+    updatedFields++;
+    payload.youtube_url = youtubeUrl;
+  }
+
+  if (youtubeStartTime !== undefined) {
+    updatedFields++;
+    payload.youtube_start_time = youtubeStartTime;
+  }
 
     if (updatedFields === 0) {
       return res.status(400).json({ error: 'No metadata fields to update' });
     }
 
-    const { data, error } = await supabase
-      .from('matches')
-      .upsert(payload, { onConflict: 'match_id' })
-      .select('note, match_type_id, match_location_id, status, winner_team, finished_at, match_level, match_cost, scheduled_at')
-      .single();
+  const { data, error } = await supabase
+    .from('matches')
+    .upsert(payload, { onConflict: 'match_id' })
+    .select('note, match_type_id, match_location_id, status, winner_team, finished_at, match_level, match_cost, scheduled_at, youtube_url, youtube_start_time')
+    .single();
 
     if (error) {
       console.error('Supabase matches upsert error:', error);
@@ -1578,22 +1836,24 @@ app.post('/api/match/:id/note', async (req, res) => {
 
     const missingMetaCount = await countMatchesMissingMeta();
 
-    return res.json({
-      ok: true,
-      note: data.note,
-      matchType: resolvedType,
-      matchLocation: resolvedLocation,
-      status: data.status || null,
-      winnerTeam: data.winner_team ?? null,
-      finishedAt: data.finished_at || null,
-      matchLevel: data.match_level || null,
-      matchCost: data.match_cost ?? null,
-      scheduledAt: data.scheduled_at || null,
-      matchTypeOptions: typeOptions,
-      matchLocationOptions: locationOptions,
-      appliedToMissingCount,
-      missingMetaCount,
-    });
+      return res.json({
+        ok: true,
+        note: data.note,
+        matchType: resolvedType,
+        matchLocation: resolvedLocation,
+        status: data.status || null,
+        winnerTeam: data.winner_team ?? null,
+        finishedAt: data.finished_at || null,
+        matchLevel: data.match_level || null,
+        matchCost: data.match_cost ?? null,
+        scheduledAt: data.scheduled_at || null,
+        youtubeUrl: data.youtube_url || null,
+        youtubeStartTime: data.youtube_start_time ?? null,
+        matchTypeOptions: typeOptions,
+        matchLocationOptions: locationOptions,
+        appliedToMissingCount,
+        missingMetaCount,
+      });
   } catch (e) {
     console.error('Supabase /api/match/:id/note exception:', e);
     return res.status(500).json({ error: 'Unexpected error' });

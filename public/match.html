@@ -186,6 +186,16 @@
             <span class="match-meta-label">Cost</span>
             <div class="match-meta-value" id="matchCostDisplay">-</div>
           </div>
+          <div class="match-meta-row">
+            <span class="match-meta-label">Video</span>
+            <div class="match-meta-value">
+              <a id="youtubeUrlDisplay" class="match-meta-link" href="#" target="_blank" rel="noopener">-</a>
+            </div>
+          </div>
+          <div class="match-meta-row">
+            <span class="match-meta-label">First point</span>
+            <div class="match-meta-value" id="youtubeStartDisplay">-</div>
+          </div>
           <div class="match-meta-row note-row">
             <span class="match-meta-label">Note</span>
             <div class="match-meta-note" id="noteDisplay">-</div>
@@ -215,6 +225,12 @@
 
           <label for="matchCostInput">Match Cost (€)</label>
           <input type="number" id="matchCostInput" min="0" step="0.01" placeholder="e.g. 12.50">
+
+          <label for="youtubeUrlInput">YouTube URL</label>
+          <input id="youtubeUrlInput" type="url" placeholder="https://www.youtube.com/watch?v=...">
+
+          <label for="youtubeStartInput">First point time (video)</label>
+          <input id="youtubeStartInput" type="text" placeholder="e.g. 12:34 or 1:02:03">
 
           <label for="noteInput">Match Note</label>
           <textarea id="noteInput" rows="3"></textarea>
@@ -289,6 +305,31 @@
           <div>
             <h4 style="margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Team Moments</h4>
             <ul id="teamMomentsList" class="key-moments"></ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- HIGHLIGHTS -->
+      <div class="panel" id="highlightsPanel">
+        <h3>Highlights</h3>
+        <div id="highlightsEmpty" class="highlights-empty">
+          Add a YouTube URL and the first point time to generate highlight links.
+        </div>
+        <div id="highlightsContent" class="highlights-content" style="display:none;">
+          <div class="highlights-grid">
+            <div class="highlights-player">
+              <iframe
+                id="highlightsPlayer"
+                title="Highlights player"
+                frameborder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen
+              ></iframe>
+            </div>
+            <div class="highlights-list-wrapper">
+              <div id="highlightsMeta" class="highlights-meta"></div>
+              <ol id="highlightsList" class="highlights-list"></ol>
+            </div>
           </div>
         </div>
       </div>

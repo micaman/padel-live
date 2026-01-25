@@ -125,6 +125,8 @@ const state = {
   scheduledAt: null,
   matchLevel: null,
   matchCost: null,
+  youtubeUrl: "",
+  youtubeStartTime: null,
   missingMetaCount: 0,
   deleteMode: false,
   isDeleting: false,
@@ -184,6 +186,8 @@ const dom = {
   scheduledAtDisplay: document.getElementById("scheduledAtDisplay"),
   matchLevelDisplay: document.getElementById("matchLevelDisplay"),
   matchCostDisplay: document.getElementById("matchCostDisplay"),
+  youtubeUrlDisplay: document.getElementById("youtubeUrlDisplay"),
+  youtubeStartDisplay: document.getElementById("youtubeStartDisplay"),
   noteDisplay: document.getElementById("noteDisplay"),
   keyMomentsList: document.getElementById("keyMomentsList"),
   matchMetaForm: document.getElementById("matchMetaForm"),
@@ -194,6 +198,8 @@ const dom = {
   scheduledAtInput: document.getElementById("scheduledAtInput"),
   matchLevelSelect: document.getElementById("matchLevelSelect"),
   matchCostInput: document.getElementById("matchCostInput"),
+  youtubeUrlInput: document.getElementById("youtubeUrlInput"),
+  youtubeStartInput: document.getElementById("youtubeStartInput"),
   noteInput: document.getElementById("noteInput"),
   saveMetaBtn: document.getElementById("saveMetaBtn"),
   applyMetaAllBtn: document.getElementById("applyMetaAllBtn"),
@@ -210,6 +216,12 @@ const dom = {
   deleteMatchBtn: document.getElementById("deleteMatchBtn"),
   autoRefreshBtn: document.getElementById("autoRefreshBtn"),
   livePill: document.getElementById("livePill"),
+  highlightsPanel: document.getElementById("highlightsPanel"),
+  highlightsEmpty: document.getElementById("highlightsEmpty"),
+  highlightsContent: document.getElementById("highlightsContent"),
+  highlightsPlayer: document.getElementById("highlightsPlayer"),
+  highlightsMeta: document.getElementById("highlightsMeta"),
+  highlightsList: document.getElementById("highlightsList"),
 };
 const playerNameEls = [dom.t1p1Name, dom.t1p2Name, dom.t2p1Name, dom.t2p2Name];
 const serverDots = [
@@ -349,6 +361,11 @@ const {
   handleSaveMatchMeta,
   handleMetaSelectChange,
 } = createMetaHandlers({ state, dom, setStatus, setError, clearError });
+function updateMatchMeta(meta) {
+  updateMatchMetaBase(meta);
+  syncAutoRefreshState();
+  updateHighlights();
+}
 const { stopReplay, applySliderValue, startReplay, syncSlider } =
   createReplayControls({ state, dom, buildFromVisible });
 document.addEventListener("DOMContentLoaded", () => {
@@ -369,11 +386,13 @@ function wireEventListeners() {
     const result = await handleSaveMatchMeta();
     syncMetaApplyState(result);
     syncAutoRefreshState();
+    updateHighlights();
   });
   dom.applyMetaAllBtn?.addEventListener("click", async () => {
     const result = await handleSaveMatchMeta({ applyToAll: true });
     syncMetaApplyState(result);
     syncAutoRefreshState();
+    updateHighlights();
   });
   dom.matchTypeSelect?.addEventListener("change", () =>
     handleMetaSelectChange("type"),
@@ -394,6 +413,7 @@ function wireEventListeners() {
   dom.applyNamesBtn?.addEventListener("click", handleApplyNames);
   dom.deleteMatchBtn?.addEventListener("click", handleDeleteMatch);
   dom.gameHistoryBody?.addEventListener("click", handleGameHistoryClick);
+  dom.highlightsList?.addEventListener("click", handleHighlightsClick);
 }
 function initializeFromUrl() {
   const parts = window.location.pathname.split("/");
@@ -534,10 +554,6 @@ function syncAutoRefreshState(immediate = false) {
   }
   syncAutoRefreshUi();
 }
-function updateMatchMeta(meta) {
-  updateMatchMetaBase(meta);
-  syncAutoRefreshState();
-}
 async function autoLoadFromServer(matchId, options = {}) {
   const { silent = false, skipNeighbors = false } = options || {};
   try {
@@ -569,19 +585,21 @@ async function autoLoadFromServer(matchId, options = {}) {
       return;
     }
     applyDbNames(data.players || []);
-    updateMatchMeta({
-      note: data.note,
-      matchType: data.matchType,
-      matchLocation: data.matchLocation,
-      matchTypeOptions: data.matchTypeOptions,
-      matchLocationOptions: data.matchLocationOptions,
-      status: data.status,
-      winnerTeam: data.winnerTeam,
-      finishedAt: data.finishedAt,
-      scheduledAt: data.scheduledAt,
-      matchLevel: data.matchLevel,
-      matchCost: data.matchCost,
-    });
+      updateMatchMeta({
+        note: data.note,
+        matchType: data.matchType,
+        matchLocation: data.matchLocation,
+        matchTypeOptions: data.matchTypeOptions,
+        matchLocationOptions: data.matchLocationOptions,
+        status: data.status,
+        winnerTeam: data.winnerTeam,
+        finishedAt: data.finishedAt,
+        scheduledAt: data.scheduledAt,
+        matchLevel: data.matchLevel,
+        matchCost: data.matchCost,
+        youtubeUrl: data.youtubeUrl,
+        youtubeStartTime: data.youtubeStartTime,
+      });
     syncApplyMetaAllButton();
     showMainView();
     syncSlider();
@@ -685,19 +703,21 @@ function handleManualLoad() {
   );
   showMainView();
   setEventsState([], state.snapshots);
-  updateMatchMeta({
-    note: "",
-    matchType: null,
-    matchLocation: null,
-    matchTypeOptions: [],
-    matchLocationOptions: [],
-    status: null,
-    winnerTeam: null,
-    finishedAt: null,
-    scheduledAt: null,
-    matchLevel: null,
-    matchCost: null,
-  });
+    updateMatchMeta({
+      note: "",
+      matchType: null,
+      matchLocation: null,
+      matchTypeOptions: [],
+      matchLocationOptions: [],
+      status: null,
+      winnerTeam: null,
+      finishedAt: null,
+      scheduledAt: null,
+      matchLevel: null,
+      matchCost: null,
+      youtubeUrl: "",
+      youtubeStartTime: null,
+    });
   state.missingMetaCount = 0;
   syncApplyMetaAllButton();
   syncSlider();
@@ -779,10 +799,11 @@ function buildFromVisible() {
   updatePlayerStatsDetailsTable();
   updateTimeStats();
   updateImpactChart();
-  updateMetricsCharts();
-  updateGameHistory();
-  renderKeyMoments();
-}
+    updateMetricsCharts();
+    updateGameHistory();
+    renderKeyMoments();
+    updateHighlights();
+  }
 function renderSetColumns(snap) {
   const setsArr = parseSetsArray(
     typeof snap.sets === "string" ? snap.sets : "",
@@ -2263,6 +2284,204 @@ function updateGameHistory() {
   body.innerHTML = rows.length
     ? rows.join("")
     : `<tr><td colspan="${emptyColspan}" class="stat-number">No points yet.</td></tr>`;
+}
+function extractYouTubeId(url) {
+  if (typeof url !== "string") return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (/^[A-Za-z0-9_-]{6,}$/.test(trimmed)) return trimmed;
+  const match = trimmed.match(
+    /(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/|v\/))([A-Za-z0-9_-]{6,})/,
+  );
+  if (match) return match[1];
+  return null;
+}
+function buildYouTubeEmbedUrl(videoId, startSec, endSec) {
+  if (!videoId) return "";
+  const params = new URLSearchParams();
+  if (Number.isFinite(startSec)) {
+    params.set("start", String(Math.max(0, Math.floor(startSec))));
+  }
+  if (Number.isFinite(endSec) && endSec > startSec) {
+    params.set("end", String(Math.max(0, Math.floor(endSec))));
+  }
+  params.set("autoplay", "1");
+  params.set("rel", "0");
+  return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
+}
+function buildYouTubeWatchUrl(videoId, baseUrl, startSec) {
+  if (videoId) {
+    const params = new URLSearchParams();
+    if (Number.isFinite(startSec)) {
+      params.set("t", String(Math.max(0, Math.floor(startSec))));
+    }
+    const suffix = params.toString();
+    return `https://youtu.be/${videoId}${suffix ? `?${suffix}` : ""}`;
+  }
+  if (!baseUrl) return "";
+  const joiner = baseUrl.includes("?") ? "&" : "?";
+  const tParam = Number.isFinite(startSec)
+    ? `t=${Math.max(0, startSec)}`
+    : "";
+  return tParam ? `${baseUrl}${joiner}${tParam}` : baseUrl;
+}
+function buildHighlightSegments(snapshots, baseVideoStart) {
+  if (!Array.isArray(snapshots) || snapshots.length < 2) return [];
+  const times = computeRelativePointTimes(snapshots);
+  const pointEvents = collectPointEvents(snapshots);
+  const eventsByIndex = new Map();
+  pointEvents.forEach((ev) => {
+    if (!eventsByIndex.has(ev.index)) eventsByIndex.set(ev.index, []);
+    eventsByIndex.get(ev.index).push(ev);
+  });
+
+  const winnerSegments = new Map();
+  for (const [index, eventsForPoint] of eventsByIndex.entries()) {
+    if (!eventsForPoint.some((ev) => ev.eventType === "winner")) continue;
+    const startOffset = times[index - 1] ?? 0;
+    const endOffset = times[index] ?? startOffset;
+    const winnerEvent = eventsForPoint.find((ev) => ev.eventType === "winner");
+    const label = winnerEvent
+      ? `${formatEventPlayerLabel(winnerEvent.playerIndex)} Winner`
+      : "Winner";
+    winnerSegments.set(index, {
+      kind: "winner",
+      index,
+      label,
+      detail: winnerEvent?.detail ?? null,
+      startSec: baseVideoStart + startOffset,
+      endSec: baseVideoStart + endOffset,
+      isLongest: false,
+    });
+  }
+
+  let longestIdx = null;
+  let longestDuration = -Infinity;
+  for (let i = 1; i < times.length; i++) {
+    const duration = Math.max(0, (times[i] ?? 0) - (times[i - 1] ?? 0));
+    if (duration > longestDuration) {
+      longestDuration = duration;
+      longestIdx = i;
+    }
+  }
+
+  if (longestIdx != null) {
+    const existing = winnerSegments.get(longestIdx);
+    if (existing) {
+      existing.isLongest = true;
+    } else {
+      const startOffset = times[longestIdx - 1] ?? 0;
+      const endOffset = times[longestIdx] ?? startOffset;
+      winnerSegments.set(longestIdx, {
+        kind: "longest",
+        index: longestIdx,
+        label: "Longest point",
+        detail: null,
+        startSec: baseVideoStart + startOffset,
+        endSec: baseVideoStart + endOffset,
+        isLongest: true,
+      });
+    }
+  }
+
+  return Array.from(winnerSegments.values()).sort((a, b) => a.index - b.index);
+}
+function updateHighlights() {
+  if (!dom.highlightsPanel) return;
+  const hasVideo =
+    Boolean(state.youtubeUrl) && Number.isFinite(state.youtubeStartTime);
+  if (!hasVideo || !state.visibleSnapshots.length) {
+    if (dom.highlightsEmpty) {
+      dom.highlightsEmpty.textContent =
+        "Add a YouTube URL and the first point time to generate highlight links.";
+      dom.highlightsEmpty.style.display = "block";
+    }
+    if (dom.highlightsContent) dom.highlightsContent.style.display = "none";
+    if (dom.highlightsList) dom.highlightsList.innerHTML = "";
+    if (dom.highlightsMeta) dom.highlightsMeta.textContent = "";
+    if (dom.highlightsPlayer) dom.highlightsPlayer.removeAttribute("src");
+    return;
+  }
+
+  const baseVideoStart = Number(state.youtubeStartTime) || 0;
+  const segments = buildHighlightSegments(state.visibleSnapshots, baseVideoStart);
+  if (!segments.length) {
+    if (dom.highlightsEmpty) {
+      dom.highlightsEmpty.textContent = "No winner points yet to highlight.";
+      dom.highlightsEmpty.style.display = "block";
+    }
+    if (dom.highlightsContent) dom.highlightsContent.style.display = "none";
+    if (dom.highlightsList) dom.highlightsList.innerHTML = "";
+    if (dom.highlightsMeta) dom.highlightsMeta.textContent = "";
+    if (dom.highlightsPlayer) dom.highlightsPlayer.removeAttribute("src");
+    return;
+  }
+
+  const videoId = extractYouTubeId(state.youtubeUrl);
+  const firstSegment = segments[0];
+  if (dom.highlightsPlayer) {
+    if (videoId) {
+      dom.highlightsPlayer.src = buildYouTubeEmbedUrl(
+        videoId,
+        firstSegment.startSec,
+        firstSegment.endSec,
+      );
+    } else {
+      dom.highlightsPlayer.removeAttribute("src");
+    }
+  }
+
+  if (dom.highlightsMeta) {
+    const baseLabel = formatDuration(baseVideoStart);
+    const suffix = videoId ? "" : " (player disabled: invalid YouTube URL)";
+    dom.highlightsMeta.textContent = `Video starts at ${baseLabel} (Point 1).${suffix}`;
+  }
+
+  if (dom.highlightsList) {
+    const rows = segments.map((segment) => {
+      const detailText =
+        segment.detail && String(segment.detail).trim()
+          ? ` (${String(segment.detail).trim()})`
+          : "";
+      const titleBase =
+        segment.kind === "winner"
+          ? `Winner: ${segment.label}${detailText}`
+          : `${segment.label}${detailText}`;
+      const title = segment.isLongest
+        ? `${titleBase} (longest)`
+        : titleBase;
+      const startLabel = formatDuration(segment.startSec);
+      const endLabel = formatDuration(segment.endSec);
+      const linkUrl = buildYouTubeWatchUrl(
+        videoId,
+        state.youtubeUrl,
+        segment.startSec,
+      );
+      const linkHtml = linkUrl
+        ? `<a class="match-meta-link" href="${escapeHtml(linkUrl)}" target="_blank" rel="noopener">Open</a>`
+        : "";
+      return `<li class="highlight-item">
+        <button type="button" class="highlight-play" data-start="${segment.startSec}" data-end="${segment.endSec}">Play</button>
+        <div>
+          <div class="highlight-title">${escapeHtml(title)}</div>
+          <div class="highlight-subtitle">Point ${segment.index} • ${startLabel}–${endLabel} ${linkHtml}</div>
+        </div>
+      </li>`;
+    });
+    dom.highlightsList.innerHTML = rows.join("");
+  }
+
+  if (dom.highlightsEmpty) dom.highlightsEmpty.style.display = "none";
+  if (dom.highlightsContent) dom.highlightsContent.style.display = "block";
+}
+function handleHighlightsClick(event) {
+  const btn = event.target?.closest?.(".highlight-play");
+  if (!btn) return;
+  const startSec = Number(btn.getAttribute("data-start"));
+  const endSec = Number(btn.getAttribute("data-end"));
+  const videoId = extractYouTubeId(state.youtubeUrl || "");
+  if (!dom.highlightsPlayer || !videoId) return;
+  dom.highlightsPlayer.src = buildYouTubeEmbedUrl(videoId, startSec, endSec);
 }
 function handleGameHistoryClick(event) {
   const btn = event.target?.closest?.("[data-delete-event-id]");

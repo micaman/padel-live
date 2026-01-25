@@ -40,6 +40,38 @@ function normalizeMatchLevel(value) {
   return trimmed || null;
 }
 
+function parseTimecodeToSeconds(value) {
+  if (value == null) return null;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.round(value));
+  }
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) {
+    return Math.max(0, Number(trimmed));
+  }
+  const parts = trimmed.split(":").map((part) => part.trim());
+  if (!parts.length || parts.length > 3) return null;
+  let total = 0;
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) return null;
+    total = total * 60 + Number(part);
+  }
+  return Number.isFinite(total) ? Math.max(0, total) : null;
+}
+
+function formatTimecode(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "";
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (val) => (val < 10 ? `0${val}` : String(val));
+  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
+  return `${m}:${pad(s)}`;
+}
+
 function ensureSelectHasValue(selectEl, value, label) {
   if (!selectEl || !value) return;
   const exists = Array.from(selectEl.options).some((opt) => opt.value === value);
@@ -57,7 +89,9 @@ function getMetaButtonLabel(state) {
     Boolean(state.matchLocation) ||
     Boolean(state.scheduledAt) ||
     Boolean(state.matchLevel) ||
-    state.matchCost !== null;
+    state.matchCost !== null ||
+    Boolean(state.youtubeUrl) ||
+    Number.isFinite(state.youtubeStartTime);
   return hasMeta ? "Edit match info" : "Add match info";
 }
 
@@ -106,6 +140,14 @@ export function createMetaHandlers({ state, dom, setStatus, setError, clearError
       const normalizedCost = normalizeMatchCost(meta.matchCost);
       state.matchCost = normalizedCost;
     }
+    if (Object.prototype.hasOwnProperty.call(meta, "youtubeUrl")) {
+      state.youtubeUrl =
+        typeof meta.youtubeUrl === "string" ? meta.youtubeUrl : "";
+    }
+    if (Object.prototype.hasOwnProperty.call(meta, "youtubeStartTime")) {
+      const parsed = parseTimecodeToSeconds(meta.youtubeStartTime);
+      state.youtubeStartTime = Number.isFinite(parsed) ? parsed : null;
+    }
 
     state.isMatchFinished = state.matchStatus === "finished";
 
@@ -135,6 +177,23 @@ export function createMetaHandlers({ state, dom, setStatus, setError, clearError
     if (dom.matchCostDisplay) {
       const costLabel = formatMatchCost(state.matchCost);
       dom.matchCostDisplay.textContent = costLabel || "-";
+    }
+    if (dom.youtubeUrlDisplay) {
+      if (state.youtubeUrl) {
+        dom.youtubeUrlDisplay.textContent = state.youtubeUrl;
+        dom.youtubeUrlDisplay.href = state.youtubeUrl;
+        dom.youtubeUrlDisplay.style.display = "inline";
+      } else {
+        dom.youtubeUrlDisplay.textContent = "-";
+        dom.youtubeUrlDisplay.removeAttribute("href");
+        dom.youtubeUrlDisplay.style.display = "inline";
+      }
+    }
+    if (dom.youtubeStartDisplay) {
+      const label = Number.isFinite(state.youtubeStartTime)
+        ? formatTimecode(state.youtubeStartTime)
+        : "-";
+      dom.youtubeStartDisplay.textContent = label;
     }
 
     if (dom.matchTypeIcon) {
@@ -233,6 +292,14 @@ export function createMetaHandlers({ state, dom, setStatus, setError, clearError
     }
     if (dom.noteInput) {
       dom.noteInput.value = state.matchNote || "";
+    }
+    if (dom.youtubeUrlInput) {
+      dom.youtubeUrlInput.value = state.youtubeUrl || "";
+    }
+    if (dom.youtubeStartInput) {
+      dom.youtubeStartInput.value = Number.isFinite(state.youtubeStartTime)
+        ? formatTimecode(state.youtubeStartTime)
+        : "";
     }
     handleMetaSelectChange("type");
     handleMetaSelectChange("location");
@@ -343,6 +410,25 @@ export function createMetaHandlers({ state, dom, setStatus, setError, clearError
       }
     }
 
+    if (dom.youtubeUrlInput) {
+      const rawUrl = (dom.youtubeUrlInput.value || "").trim();
+      payload.youtubeUrl = rawUrl || null;
+    }
+
+    if (dom.youtubeStartInput) {
+      const rawTime = (dom.youtubeStartInput.value || "").trim();
+      if (!rawTime) {
+        payload.youtubeStartTime = null;
+      } else {
+        const parsedTime = parseTimecodeToSeconds(rawTime);
+        if (!Number.isFinite(parsedTime)) {
+          setError?.("Enter a valid first point time (e.g. 12:34 or 1:02:03).");
+          return;
+        }
+        payload.youtubeStartTime = parsedTime;
+      }
+    }
+
     try {
       const res = await fetch(`/api/match/${state.currentMatchId}/note`, {
         method: "POST",
@@ -365,7 +451,12 @@ export function createMetaHandlers({ state, dom, setStatus, setError, clearError
         finishedAt: data.finishedAt ?? state.finishedAt,
         scheduledAt: data.scheduledAt ?? payload.scheduledAt ?? state.scheduledAt,
         matchLevel: data.matchLevel ?? payload.matchLevel ?? state.matchLevel,
-        matchCost: data.matchCost ?? payload.matchCost ?? state.matchCost
+        matchCost: data.matchCost ?? payload.matchCost ?? state.matchCost,
+        youtubeUrl: data.youtubeUrl ?? payload.youtubeUrl ?? state.youtubeUrl,
+        youtubeStartTime:
+          data.youtubeStartTime ??
+          payload.youtubeStartTime ??
+          state.youtubeStartTime
       });
       toggleMatchMetaForm(false);
       const appliedToMissingCount = Number(data.appliedToMissingCount || 0);
