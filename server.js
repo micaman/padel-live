@@ -404,6 +404,7 @@ function getDayLabel(timestamp) {
 
 const WINNER_DETAIL_KEYS = ['normal', 'home', 'x3', 'x4', 'door', 'barbaridad'];
 const ERROR_DETAIL_KEYS = ['unforced', 'forced', 'beer'];
+const HIGHLIGHT_DETAIL = 'highlight';
 
 function normalizeWinnerDetail(detailRaw) {
   const detail = typeof detailRaw === 'string' ? detailRaw.trim().toLowerCase() : '';
@@ -415,6 +416,11 @@ function normalizeErrorDetail(detailRaw) {
   const detail = typeof detailRaw === 'string' ? detailRaw.trim().toLowerCase() : '';
   if (!detail) return 'unforced';
   return ERROR_DETAIL_KEYS.includes(detail) ? detail : 'unforced';
+}
+
+function isHighlightDetail(detailRaw) {
+  if (typeof detailRaw !== 'string') return false;
+  return detailRaw.trim().toLowerCase() === HIGHLIGHT_DETAIL;
 }
 
 function createWinnerDetailBuckets() {
@@ -521,6 +527,7 @@ function collectPointEventsServer(snaps) {
     const extraInfo = getExtraInfoFromSnapshotServer(curr);
     const prevPlayers = Array.isArray(prev.players) ? prev.players : [];
     const currPlayers = Array.isArray(curr.players) ? curr.players : [];
+    let hasStatEvent = false;
     for (let pIdx = 0; pIdx < 4; pIdx++) {
       const prevStats = prevPlayers[pIdx] || { winners: 0, errors: 0 };
       const currStats = currPlayers[pIdx] || { winners: 0, errors: 0 };
@@ -528,6 +535,7 @@ function collectPointEventsServer(snaps) {
       const eDiff = Number(currStats.errors || 0) - Number(prevStats.errors || 0);
       const playerName = currPlayers[pIdx]?.name || null;
       if (wDiff > 0) {
+        hasStatEvent = true;
         events.push({
           index: i,
           playerIndex: pIdx,
@@ -538,6 +546,7 @@ function collectPointEventsServer(snaps) {
         });
       }
       if (eDiff > 0) {
+        hasStatEvent = true;
         events.push({
           index: i,
           playerIndex: pIdx,
@@ -547,6 +556,16 @@ function collectPointEventsServer(snaps) {
           detail: extraInfo,
         });
       }
+    }
+    if (!hasStatEvent && isHighlightDetail(extraInfo)) {
+      events.push({
+        index: i,
+        playerIndex: null,
+        playerName: null,
+        team: null,
+        eventType: 'highlight',
+        detail: extraInfo,
+      });
     }
   }
   return events;
@@ -565,19 +584,39 @@ function buildHighlightCutsFromSnapshots(snaps, baseVideoStart = 0) {
   const segments = new Map();
   for (const [index, eventsForPoint] of eventsByIndex.entries()) {
     const winnerEvent = eventsForPoint.find((ev) => ev.eventType === 'winner');
-    if (!winnerEvent) continue;
+    const highlightEvent = eventsForPoint.find((ev) =>
+      isHighlightDetail(ev.detail),
+    );
+    const labelEvent = winnerEvent || highlightEvent;
+    if (!labelEvent) continue;
     const startOffset = times[index - 1] ?? 0;
     const endOffset = times[index] ?? startOffset;
     const playerLabel =
-      winnerEvent.playerName || `P${winnerEvent.playerIndex + 1}`;
-    const label = `${playerLabel} Winner`;
+      labelEvent.playerName ||
+      (Number.isFinite(labelEvent.playerIndex)
+        ? `P${labelEvent.playerIndex + 1}`
+        : null);
+    const labelSuffix =
+      labelEvent.eventType === 'error'
+        ? 'Error'
+        : labelEvent.eventType === 'highlight'
+        ? 'Highlight'
+        : 'Winner';
+    const label = playerLabel ? `${playerLabel} ${labelSuffix}` : labelSuffix;
+    const detailEvent = highlightEvent || winnerEvent;
+    const detailText =
+      detailEvent?.detail && String(detailEvent.detail).trim()
+        ? ` - ${String(detailEvent.detail).trim()}`
+        : '';
+    const text = `${label}${detailText}`;
     segments.set(index, {
-      kind: 'winner',
+      kind: winnerEvent ? 'winner' : 'highlight',
       index,
-      team: winnerEvent.team,
-      playerIndex: winnerEvent.playerIndex,
+      team: labelEvent.team,
+      playerIndex: labelEvent.playerIndex,
       label,
-      detail: winnerEvent.detail ?? null,
+      detail: detailEvent?.detail ?? null,
+      text,
       startSec: Math.max(0, Math.round(baseVideoStart + startOffset)),
       endSec: Math.max(0, Math.round(baseVideoStart + endOffset)),
       isLongest: false,

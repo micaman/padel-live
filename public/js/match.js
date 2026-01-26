@@ -69,6 +69,7 @@ const METRIC_DEFS = [
 ];
 const WINNER_DETAIL_KEYS = ["normal", "home", "x3", "x4", "door", "barbaridad"];
 const ERROR_DETAIL_KEYS = ["unforced", "forced", "beer"];
+const HIGHLIGHT_DETAIL = "highlight";
 const WINNER_DETAIL_LABELS = {
   normal: "Normal",
   home: "Home",
@@ -1489,6 +1490,10 @@ function normalizeErrorDetail(detailRaw) {
   if (ERROR_DETAIL_KEYS.includes(detail)) return detail;
   return "unforced";
 }
+function isHighlightDetail(detailRaw) {
+  if (typeof detailRaw !== "string") return false;
+  return detailRaw.trim().toLowerCase() === HIGHLIGHT_DETAIL;
+}
 function createWinnerDetailBuckets() {
   return WINNER_DETAIL_KEYS.reduce((acc, key) => {
     acc[key] = 0;
@@ -1509,6 +1514,7 @@ function collectPointEvents(snaps) {
     const extraInfo = getExtraInfoFromSnapshot(curr);
     const prevPlayers = Array.isArray(prev.players) ? prev.players : [];
     const currPlayers = Array.isArray(curr.players) ? curr.players : [];
+    let hasStatEvent = false;
     for (let pIdx = 0; pIdx < 4; pIdx++) {
       const prevStats = prevPlayers[pIdx] || { winners: 0, errors: 0 };
       const currStats = currPlayers[pIdx] || { winners: 0, errors: 0 };
@@ -1517,6 +1523,7 @@ function collectPointEvents(snaps) {
       const eDiff =
         Number(currStats.errors || 0) - Number(prevStats.errors || 0);
       if (wDiff > 0) {
+        hasStatEvent = true;
         events.push({
           index: i,
           playerIndex: pIdx,
@@ -1526,6 +1533,7 @@ function collectPointEvents(snaps) {
         });
       }
       if (eDiff > 0) {
+        hasStatEvent = true;
         events.push({
           index: i,
           playerIndex: pIdx,
@@ -1534,6 +1542,15 @@ function collectPointEvents(snaps) {
           detail: extraInfo,
         });
       }
+    }
+    if (!hasStatEvent && isHighlightDetail(extraInfo)) {
+      events.push({
+        index: i,
+        playerIndex: null,
+        team: null,
+        eventType: "highlight",
+        detail: extraInfo,
+      });
     }
   }
   return events;
@@ -2337,18 +2354,32 @@ function buildHighlightSegments(snapshots, baseVideoStart) {
 
   const winnerSegments = new Map();
   for (const [index, eventsForPoint] of eventsByIndex.entries()) {
-    if (!eventsForPoint.some((ev) => ev.eventType === "winner")) continue;
+    const winnerEvent = eventsForPoint.find((ev) => ev.eventType === "winner");
+    const highlightEvent = eventsForPoint.find((ev) =>
+      isHighlightDetail(ev.detail),
+    );
+    const labelEvent = winnerEvent || highlightEvent;
+    if (!labelEvent) continue;
     const startOffset = times[index - 1] ?? 0;
     const endOffset = times[index] ?? startOffset;
-    const winnerEvent = eventsForPoint.find((ev) => ev.eventType === "winner");
-    const label = winnerEvent
-      ? `${formatEventPlayerLabel(winnerEvent.playerIndex)} Winner`
-      : "Winner";
+    const labelSuffix =
+      labelEvent.eventType === "error"
+        ? "Error"
+        : labelEvent.eventType === "highlight"
+        ? "Highlight"
+        : "Winner";
+    const labelBase =
+      Number.isFinite(labelEvent.playerIndex) &&
+      labelEvent.playerIndex !== null
+        ? formatEventPlayerLabel(labelEvent.playerIndex)
+        : "";
+    const label = labelBase ? `${labelBase} ${labelSuffix}` : labelSuffix;
+    const detailEvent = highlightEvent || winnerEvent;
     winnerSegments.set(index, {
-      kind: "winner",
+      kind: winnerEvent ? "winner" : "highlight",
       index,
       label,
-      detail: winnerEvent?.detail ?? null,
+      detail: detailEvent?.detail ?? null,
       startSec: baseVideoStart + startOffset,
       endSec: baseVideoStart + endOffset,
       isLongest: false,
@@ -2407,7 +2438,8 @@ function updateHighlights() {
   const segments = buildHighlightSegments(state.visibleSnapshots, baseVideoStart);
   if (!segments.length) {
     if (dom.highlightsEmpty) {
-      dom.highlightsEmpty.textContent = "No winner points yet to highlight.";
+      dom.highlightsEmpty.textContent =
+        "No winner or highlight points yet to show.";
       dom.highlightsEmpty.style.display = "block";
     }
     if (dom.highlightsContent) dom.highlightsContent.style.display = "none";
