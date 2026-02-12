@@ -169,6 +169,7 @@ const dom = {
   t2p1Input: document.getElementById("t2p1"),
   t2p2Input: document.getElementById("t2p2"),
   applyNamesBtn: document.getElementById("applyNamesBtn"),
+  applyNamesDayBtn: document.getElementById("applyNamesDayBtn"),
   editNamesBtn: document.getElementById("editNamesBtn"),
   editMetaBtn: document.getElementById("editMetaBtn"),
   matchLabel: document.getElementById("matchLabel"),
@@ -183,6 +184,7 @@ const dom = {
   matchTypeIcon: document.getElementById("matchTypeIcon"),
   matchLocationLogo: document.getElementById("matchLocationLogo"),
   matchTypeDisplay: document.getElementById("matchTypeDisplay"),
+  winnerTeamDisplay: document.getElementById("winnerTeamDisplay"),
   matchLocationDisplay: document.getElementById("matchLocationDisplay"),
   scheduledAtDisplay: document.getElementById("scheduledAtDisplay"),
   matchLevelDisplay: document.getElementById("matchLevelDisplay"),
@@ -193,6 +195,7 @@ const dom = {
   keyMomentsList: document.getElementById("keyMomentsList"),
   matchMetaForm: document.getElementById("matchMetaForm"),
   matchTypeSelect: document.getElementById("matchTypeSelect"),
+  winnerTeamSelect: document.getElementById("winnerTeamSelect"),
   matchLocationSelect: document.getElementById("matchLocationSelect"),
   matchTypeNewInput: document.getElementById("matchTypeNewInput"),
   matchLocationNewInput: document.getElementById("matchLocationNewInput"),
@@ -321,6 +324,19 @@ function abbreviateToInitials(name) {
   if (!parts.length) return name;
   return parts.map((p) => p.charAt(0).toUpperCase()).join("");
 }
+function generateRandomPlayerName() {
+  const num = Math.floor(10000000 + Math.random() * 90000000);
+  return `Player${num}`;
+}
+function handleRandomNameClick(event) {
+  const btn = event.target?.closest?.(".name-random-btn");
+  if (!btn) return;
+  const targetId = btn.getAttribute("data-target");
+  if (!targetId) return;
+  const input = document.getElementById(targetId);
+  if (!input) return;
+  input.value = generateRandomPlayerName();
+}
 function normalizePlayerRef(entry, fallbackName, index) {
   if (entry) {
     return {
@@ -406,16 +422,20 @@ function wireEventListeners() {
     state.autoRefreshEnabled = !state.autoRefreshEnabled;
     syncAutoRefreshState(true);
   });
-  dom.timeSlider?.addEventListener("input", () => {
-    stopReplay();
-    applySliderValue(dom.timeSlider.value);
-  });
-  dom.replayBtn?.addEventListener("click", startReplay);
-  dom.applyNamesBtn?.addEventListener("click", handleApplyNames);
-  dom.deleteMatchBtn?.addEventListener("click", handleDeleteMatch);
-  dom.gameHistoryBody?.addEventListener("click", handleGameHistoryClick);
-  dom.highlightsList?.addEventListener("click", handleHighlightsClick);
-}
+    dom.timeSlider?.addEventListener("input", () => {
+      stopReplay();
+      applySliderValue(dom.timeSlider.value);
+    });
+    dom.replayBtn?.addEventListener("click", startReplay);
+    dom.applyNamesBtn?.addEventListener("click", handleApplyNames);
+    dom.applyNamesDayBtn?.addEventListener("click", () =>
+      handleApplyNames({ applyToDay: true }),
+    );
+    dom.namesPanel?.addEventListener("click", handleRandomNameClick);
+    dom.deleteMatchBtn?.addEventListener("click", handleDeleteMatch);
+    dom.gameHistoryBody?.addEventListener("click", handleGameHistoryClick);
+    dom.highlightsList?.addEventListener("click", handleHighlightsClick);
+  }
 function initializeFromUrl() {
   const parts = window.location.pathname.split("/");
   const matchId = parts[parts.length - 1] || null;
@@ -724,7 +744,7 @@ function handleManualLoad() {
   syncSlider();
   buildFromVisible();
 }
-function handleApplyNames() {
+function handleApplyNames(options = {}) {
   state.currentNames = [
     dom.t1p1Input?.value || "P1",
     dom.t1p2Input?.value || "P2",
@@ -742,23 +762,43 @@ function handleApplyNames() {
   updateTimeStats();
   updateImpactChart();
   if (state.currentMatchId) {
-    saveNames();
+    saveNames(options);
   }
   if (dom.namesPanel) dom.namesPanel.style.display = "none";
   if (dom.inputPanel) dom.inputPanel.style.display = "none";
 }
-async function saveNames() {
+async function saveNames(options = {}) {
+  const applyToDay = Boolean(options.applyToDay);
   try {
-    await fetch(`/api/match/${state.currentMatchId}/players`, {
+    if (applyToDay) {
+      setStatus("Saving names for all matches today...");
+    }
+    const res = await fetch(`/api/match/${state.currentMatchId}/players`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         team1: { p1: state.currentNames[0], p2: state.currentNames[1] },
         team2: { p1: state.currentNames[2], p2: state.currentNames[3] },
+        applyToDay,
       }),
     });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    if (applyToDay) {
+      const count = Number(data.appliedToDayCount || 0);
+      const suffix =
+        count > 0
+          ? `Applied to ${count} other match${count === 1 ? "" : "es"}.`
+          : "No other matches found for that day.";
+      setStatus(`Names saved. ${suffix}`);
+    } else {
+      setStatus("Names saved.");
+    }
   } catch (err) {
     console.error("Failed to save names:", err);
+    setError(`Failed to save names: ${err.message}`);
   }
 }
 function buildFromVisible() {

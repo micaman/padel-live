@@ -116,6 +116,18 @@ function parseNullableDate(raw) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+function getUtcDayRange(raw) {
+  if (!raw) return null;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  const start = new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
+  );
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 function parseTimecodeToSeconds(raw) {
   if (typeof raw === 'number' && Number.isFinite(raw)) {
     return Math.max(0, Math.round(raw));
@@ -140,6 +152,14 @@ function parseNullableTimecode(raw) {
   if (raw === undefined) return undefined;
   if (raw === null || raw === '') return null;
   return parseTimecodeToSeconds(raw);
+}
+
+function parseNullableWinnerTeam(raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === '') return null;
+  const num = Number(raw);
+  if (num === 1 || num === 2) return num;
+  return null;
 }
 
 function formatMatchTypeRow(row) {
@@ -1678,6 +1698,12 @@ app.post('/api/match/:id/note', async (req, res) => {
     ? body.match_level
     : undefined;
 
+  const winnerTeamRaw = Object.prototype.hasOwnProperty.call(body, 'winnerTeam')
+    ? body.winnerTeam
+    : Object.prototype.hasOwnProperty.call(body, 'winner_team')
+    ? body.winner_team
+    : undefined;
+
   const matchCostRaw = Object.prototype.hasOwnProperty.call(body, 'matchCost')
     ? body.matchCost
     : Object.prototype.hasOwnProperty.call(body, 'match_cost')
@@ -1724,6 +1750,7 @@ app.post('/api/match/:id/note', async (req, res) => {
   const scheduledAt = parseNullableDate(scheduledAtRaw);
   const matchLevel =
     matchLevelRaw !== undefined ? normalizeText(matchLevelRaw) : undefined;
+  const winnerTeam = parseNullableWinnerTeam(winnerTeamRaw);
   const matchCost = parseNullableNumber(matchCostRaw);
   const youtubeUrl =
     youtubeUrlRaw !== undefined ? normalizeText(youtubeUrlRaw) : undefined;
@@ -1739,9 +1766,18 @@ app.post('/api/match/:id/note', async (req, res) => {
     youtubeStartTimeRaw !== null &&
     String(youtubeStartTimeRaw).trim() !== '' &&
     youtubeStartTime == null
-  ) {
-    return res.status(400).json({ error: 'Invalid youtubeStartTime value' });
-  }
+    ) {
+      return res.status(400).json({ error: 'Invalid youtubeStartTime value' });
+    }
+
+    if (
+      winnerTeamRaw !== undefined &&
+      winnerTeamRaw !== null &&
+      String(winnerTeamRaw).trim() !== '' &&
+      winnerTeam == null
+    ) {
+      return res.status(400).json({ error: 'Invalid winnerTeam value' });
+    }
 
   if (!supabase) {
     return res.status(500).json({ error: 'Supabase not configured' });
@@ -1793,10 +1829,15 @@ app.post('/api/match/:id/note', async (req, res) => {
       payload.scheduled_at = scheduledAt;
     }
 
-    if (matchLevel !== undefined) {
-      updatedFields++;
-      payload.match_level = matchLevel;
-    }
+  if (matchLevel !== undefined) {
+    updatedFields++;
+    payload.match_level = matchLevel;
+  }
+
+  if (winnerTeam !== undefined) {
+    updatedFields++;
+    payload.winner_team = winnerTeam ?? null;
+  }
 
   if (matchCost !== undefined) {
     updatedFields++;
@@ -2178,7 +2219,22 @@ app.get('/api/db-matches', async (req, res) => {
 // Set player NAMES for a given match (from viewer)
 app.post('/api/match/:id/players', async (req, res) => {
   const matchId = String(req.params.id);
-  const { team1, team2 } = req.body || {};
+  const body = req.body || {};
+  const { team1, team2 } = body;
+  const applyToDayRaw = Object.prototype.hasOwnProperty.call(body, 'applyToDay')
+    ? body.applyToDay
+    : Object.prototype.hasOwnProperty.call(body, 'apply_to_day')
+    ? body.apply_to_day
+    : undefined;
+  const applyToDay =
+    applyToDayRaw === true ||
+    applyToDayRaw === 'true' ||
+    applyToDayRaw === 1 ||
+    applyToDayRaw === '1';
+
+  if (applyToDay && !supabase) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
 
   const match = getOrCreateMatch(matchId);
 
@@ -2189,12 +2245,13 @@ app.post('/api/match/:id/players', async (req, res) => {
   const t2p1 = resolveName(team2?.p1, match.players[2].name);
   const t2p2 = resolveName(team2?.p2, match.players[3].name);
 
-  match.players = [
+  const updatedPlayers = [
     { id: 't1p1', team: 1, name: t1p1 },
     { id: 't1p2', team: 1, name: t1p2 },
     { id: 't2p1', team: 2, name: t2p1 },
     { id: 't2p2', team: 2, name: t2p2 },
   ];
+  match.players = updatedPlayers;
 
   const dbEntries = [
     { team: 1, slot: 1, name: t1p1 },
@@ -2209,7 +2266,107 @@ app.post('/api/match/:id/players', async (req, res) => {
     console.error('Supabase match_players persist exception:', e);
   }
 
-  return res.json({ ok: true, players: match.players });
+  let appliedToDayCount = 0;
+  if (applyToDay) {
+    let dayAnchor = null;
+    try {
+      const { data: metaRow, error: metaErr } = await supabase
+        .from('matches')
+        .select('scheduled_at, created_at')
+        .eq('match_id', matchId)
+        .maybeSingle();
+      if (metaErr && metaErr.code !== 'PGRST116') {
+        console.error('Supabase matches select error (players day):', metaErr);
+      } else {
+        dayAnchor = metaRow?.scheduled_at || metaRow?.created_at || null;
+      }
+    } catch (e) {
+      console.error('Supabase matches select exception (players day):', e);
+    }
+
+    if (!dayAnchor) {
+      try {
+        const { data: eventRow, error: eventErr } = await supabase
+          .from('watch_events')
+          .select('watch_timestamp, received_at')
+          .eq('match_id', matchId)
+          .order('watch_timestamp', { ascending: false, nullsLast: true })
+          .order('id', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (eventErr && eventErr.code !== 'PGRST116') {
+          console.error(
+            'Supabase watch_events select error (players day):',
+            eventErr,
+          );
+        } else {
+          dayAnchor = eventRow?.watch_timestamp || eventRow?.received_at || null;
+        }
+      } catch (e) {
+        console.error('Supabase watch_events select exception (players day):', e);
+      }
+    }
+
+    const dayRange = getUtcDayRange(dayAnchor);
+    if (!dayRange) {
+      return res
+        .status(400)
+        .json({ error: 'Unable to determine match day for bulk update' });
+    }
+
+    const [scheduledRes, fallbackRes] = await Promise.all([
+      supabase
+        .from('matches')
+        .select('match_id')
+        .gte('scheduled_at', dayRange.start)
+        .lt('scheduled_at', dayRange.end),
+      supabase
+        .from('matches')
+        .select('match_id')
+        .is('scheduled_at', null)
+        .gte('created_at', dayRange.start)
+        .lt('created_at', dayRange.end),
+    ]);
+
+    if (scheduledRes.error) {
+      console.error(
+        'Supabase matches select error (players day scheduled):',
+        scheduledRes.error,
+      );
+    }
+    if (fallbackRes.error) {
+      console.error(
+        'Supabase matches select error (players day fallback):',
+        fallbackRes.error,
+      );
+    }
+
+    const matchIds = new Set(
+      [...(scheduledRes.data || []), ...(fallbackRes.data || [])].map((row) =>
+        String(row.match_id),
+      ),
+    );
+    matchIds.delete(matchId);
+
+    for (const otherMatchId of matchIds) {
+      try {
+        await persistMatchPlayers(otherMatchId, dbEntries);
+        appliedToDayCount++;
+      } catch (e) {
+        console.error('Supabase match_players persist exception (bulk):', e);
+      }
+      const cached = matches.get(otherMatchId);
+      if (cached) {
+        cached.players = updatedPlayers.map((entry) => ({ ...entry }));
+      }
+    }
+  }
+
+  return res.json({
+    ok: true,
+    players: match.players,
+    appliedToDayCount,
+  });
 });
 
 // Player profile page data

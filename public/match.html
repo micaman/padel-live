@@ -130,22 +130,39 @@
         <div class="names-grid">
           <div>
             <label>Team 1 - Player 1</label>
-            <input id="t1p1">
+            <div class="name-input-row">
+              <input id="t1p1">
+              <button type="button" class="name-random-btn" data-target="t1p1" title="Random name">R</button>
+            </div>
           </div>
           <div>
             <label>Team 1 - Player 2</label>
-            <input id="t1p2">
+            <div class="name-input-row">
+              <input id="t1p2">
+              <button type="button" class="name-random-btn" data-target="t1p2" title="Random name">R</button>
+            </div>
           </div>
           <div>
             <label>Team 2 - Player 1</label>
-            <input id="t2p1">
+            <div class="name-input-row">
+              <input id="t2p1">
+              <button type="button" class="name-random-btn" data-target="t2p1" title="Random name">R</button>
+            </div>
           </div>
           <div>
             <label>Team 2 - Player 2</label>
-            <input id="t2p2">
+            <div class="name-input-row">
+              <input id="t2p2">
+              <button type="button" class="name-random-btn" data-target="t2p2" title="Random name">R</button>
+            </div>
           </div>
         </div>
-        <button id="applyNamesBtn">Apply Names</button>
+        <div class="names-actions">
+          <button id="applyNamesBtn" type="button">Apply Names</button>
+          <button id="applyNamesDayBtn" type="button" class="pill-btn pill-btn--ghost">
+            Apply names to day
+          </button>
+        </div>
 
         <div class="debug">
           <strong>Match:</strong> <span id="matchLabel"></span><br>
@@ -159,13 +176,17 @@
       <!-- NOTE PANEL -->
       <div class="panel" id="notePanel">
         <h3>Match Info</h3>
-                <div class="match-meta-display">
+        <div class="match-meta-display">
           <div class="match-meta-row">
             <span class="match-meta-label">Type</span>
             <div class="match-meta-value with-media">
               <img id="matchTypeIcon" class="match-meta-media" alt="" />
               <span id="matchTypeDisplay">-</span>
             </div>
+          </div>
+          <div class="match-meta-row">
+            <span class="match-meta-label">Winner</span>
+            <div class="match-meta-value" id="winnerTeamDisplay">-</div>
           </div>
           <div class="match-meta-row">
             <span class="match-meta-label">Location</span>
@@ -205,6 +226,13 @@
           <label for="matchTypeSelect">Match Type</label>
           <select id="matchTypeSelect"></select>
           <input id="matchTypeNewInput" class="match-meta-new-input" placeholder="New match type name" style="display:none;">
+
+          <label for="winnerTeamSelect">Winner</label>
+          <select id="winnerTeamSelect">
+            <option value="">No winner</option>
+            <option value="1">Team 1</option>
+            <option value="2">Team 2</option>
+          </select>
 
           <label for="matchLocationSelect">Location</label>
           <select id="matchLocationSelect"></select>

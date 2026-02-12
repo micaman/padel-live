@@ -86,6 +86,7 @@ function getMetaButtonLabel(state) {
   const hasMeta =
     Boolean(state.matchNote && state.matchNote.trim()) ||
     Boolean(state.matchType) ||
+    Boolean(state.winnerTeam) ||
     Boolean(state.matchLocation) ||
     Boolean(state.scheduledAt) ||
     Boolean(state.matchLevel) ||
@@ -163,6 +164,15 @@ export function createMetaHandlers({ state, dom, setStatus, setError, clearError
     }
     if (dom.matchTypeDisplay) {
       dom.matchTypeDisplay.textContent = state.matchType?.name || "-";
+    }
+    if (dom.winnerTeamDisplay) {
+      const winnerLabel =
+        state.winnerTeam === 1
+          ? "Team 1"
+          : state.winnerTeam === 2
+          ? "Team 2"
+          : "-";
+      dom.winnerTeamDisplay.textContent = winnerLabel;
     }
     if (dom.matchLocationDisplay) {
       dom.matchLocationDisplay.textContent = state.matchLocation?.name || "-";
@@ -268,6 +278,9 @@ export function createMetaHandlers({ state, dom, setStatus, setError, clearError
         state.matchType?.id || null,
         "No match type"
       );
+    }
+    if (dom.winnerTeamSelect) {
+      dom.winnerTeamSelect.value = state.winnerTeam ? String(state.winnerTeam) : "";
     }
     if (dom.matchLocationSelect) {
       populateMetaSelect(
@@ -394,6 +407,20 @@ export function createMetaHandlers({ state, dom, setStatus, setError, clearError
     if (dom.matchLevelSelect) {
       const levelValue = dom.matchLevelSelect.value;
       payload.matchLevel = levelValue ? normalizeMatchLevel(levelValue) : null;
+    }
+
+    if (dom.winnerTeamSelect) {
+      const winnerValue = dom.winnerTeamSelect.value;
+      if (!winnerValue) {
+        payload.winnerTeam = null;
+      } else {
+        const parsed = Number(winnerValue);
+        if (parsed !== 1 && parsed !== 2) {
+          setError?.("Select a valid winner.");
+          return;
+        }
+        payload.winnerTeam = parsed;
+      }
     }
 
     if (dom.matchCostInput) {
