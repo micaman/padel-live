@@ -86,6 +86,28 @@
       flex-wrap: wrap;
     }
 
+    .match-group-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .match-group-link {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #f7c948;
+      text-decoration: none;
+      border-bottom: 1px dotted rgba(247, 201, 72, 0.5);
+    }
+
+    .match-group-link:hover {
+      color: #fff4cc;
+      border-bottom-color: rgba(255, 255, 255, 0.6);
+    }
+
     .match-group-title .match-tag {
       border-color: rgba(247, 201, 72, 0.3);
     }
@@ -214,7 +236,6 @@
 <body>
   <h1>My Padel Matches</h1>
 
-  <div id="status" class="status"></div>
   <div id="error" class="error"></div>
 
   <div id="matchesList" class="matches-list"></div>

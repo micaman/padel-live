@@ -1,0 +1,84 @@
+:root {
+  --event-card-bg: #181a25;
+}
+
+.event-header {
+  margin: 10px 0 6px;
+  padding: 12px;
+  border: 1px solid #26293a;
+  background: rgba(24, 26, 37, 0.9);
+  border-radius: 8px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.3);
+  text-align: center;
+}
+
+.event-title {
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.event-title-media {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.event-media {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #f5f5f5;
+  display: none;
+}
+
+.event-subtitle {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.event-time {
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.event-matches {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 12px;
+}
+
+.event-match {
+  border: 1px solid #26293a;
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--event-card-bg);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
+.event-match .scoreboard-wrapper {
+  position: static;
+  top: auto;
+  z-index: auto;
+  background: none;
+  padding: 6px 0 0;
+  margin-bottom: 12px;
+}
+
+.event-stats-panel {
+  margin-top: 0;
+}
+
+@media (max-width: 640px) {
+  .event-match {
+    padding: 10px;
+  }
+}

@@ -248,6 +248,48 @@ async function fetchMatchLocationOptions() {
   }
 }
 
+async function fetchMatchTypeByName(name) {
+  if (!supabase) return null;
+  const normalized = normalizeText(name);
+  if (!normalized) return null;
+  try {
+    const { data, error } = await supabase
+      .from('match_types')
+      .select('id, name, icon_url')
+      .ilike('name', normalized)
+      .limit(1);
+    if (error) {
+      console.error('Supabase match_types select error (by name):', error);
+      return null;
+    }
+    return formatMatchTypeRow((data || [])[0]);
+  } catch (e) {
+    console.error('Supabase fetchMatchTypeByName exception:', e);
+    return null;
+  }
+}
+
+async function fetchMatchLocationByName(name) {
+  if (!supabase) return null;
+  const normalized = normalizeText(name);
+  if (!normalized) return null;
+  try {
+    const { data, error } = await supabase
+      .from('match_locations')
+      .select('id, name, logo_url')
+      .ilike('name', normalized)
+      .limit(1);
+    if (error) {
+      console.error('Supabase match_locations select error (by name):', error);
+      return null;
+    }
+    return formatMatchLocationRow((data || [])[0]);
+  } catch (e) {
+    console.error('Supabase fetchMatchLocationByName exception:', e);
+    return null;
+  }
+}
+
 async function getCachedMatchLocations(ids) {
   if (!supabase) return new Map();
   const now = Date.now();
@@ -436,6 +478,33 @@ function normalizeErrorDetail(detailRaw) {
   const detail = typeof detailRaw === 'string' ? detailRaw.trim().toLowerCase() : '';
   if (!detail) return 'unforced';
   return ERROR_DETAIL_KEYS.includes(detail) ? detail : 'unforced';
+}
+
+function getExtraInfoFromSnapshot(snap) {
+  if (!snap || typeof snap !== 'object') return null;
+  return snap.extraInfo ?? snap.extra_info ?? null;
+}
+
+function computeUnforcedErrorsFromSnapshots(snapshots) {
+  const counts = [0, 0, 0, 0];
+  if (!Array.isArray(snapshots) || snapshots.length < 2) return counts;
+  for (let i = 1; i < snapshots.length; i++) {
+    const prev = snapshots[i - 1];
+    const curr = snapshots[i];
+    const extraInfo = getExtraInfoFromSnapshot(curr);
+    const detail = normalizeErrorDetail(extraInfo);
+    const prevPlayers = Array.isArray(prev.players) ? prev.players : [];
+    const currPlayers = Array.isArray(curr.players) ? curr.players : [];
+    for (let pIdx = 0; pIdx < 4; pIdx++) {
+      const prevStats = prevPlayers[pIdx] || { errors: 0 };
+      const currStats = currPlayers[pIdx] || { errors: 0 };
+      const eDiff = Number(currStats.errors || 0) - Number(prevStats.errors || 0);
+      if (eDiff > 0 && detail === 'unforced') {
+        counts[pIdx] += 1;
+      }
+    }
+  }
+  return counts;
 }
 
 function isHighlightDetail(detailRaw) {
@@ -1941,7 +2010,7 @@ app.post('/api/match/:id/note', async (req, res) => {
 });
 
 // List matches from DB (paginated, newest first)
-app.get('/api/db-matches', async (req, res) => {
+  app.get('/api/db-matches', async (req, res) => {
   if (!supabase) return res.status(500).json({ error: 'Supabase not configured' });
 
   const limit = Math.min(Math.max(parseInt(req.query.limit || '10', 10), 1), 50);
@@ -1980,7 +2049,292 @@ app.get('/api/db-matches', async (req, res) => {
         lastTimestamp: ts,
         lastSnapshot: raw,
       };
-    });
+  });
+
+  app.get('/api/event-matches', async (req, res) => {
+    if (!supabase) return res.status(500).json({ error: 'Supabase not configured' });
+
+    const dateRaw = String(req.query.date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) {
+      return res.status(400).json({ error: 'Invalid date. Use YYYY-MM-DD.' });
+    }
+
+    const typeParam = req.query.type != null ? String(req.query.type).trim() : '';
+    const locationParam =
+      req.query.location != null ? String(req.query.location).trim() : '';
+
+    const isUnknownLabel = (value) => {
+      const normalized = String(value || '').trim().toLowerCase();
+      return (
+        !normalized ||
+        normalized === 'unknown' ||
+        normalized === 'unknown type' ||
+        normalized === 'unknown location'
+      );
+    };
+
+    const typeIsUnknown = isUnknownLabel(typeParam);
+    const locationIsUnknown = isUnknownLabel(locationParam);
+
+    const dayRange = getUtcDayRange(`${dateRaw}T00:00:00Z`);
+    if (!dayRange) {
+      return res.status(400).json({ error: 'Invalid date range.' });
+    }
+
+    try {
+      let typeRow = null;
+      let locationRow = null;
+      if (!typeIsUnknown) {
+        typeRow = await fetchMatchTypeByName(typeParam);
+        if (!typeRow) {
+          return res.json({
+            date: dateRaw,
+            matchType: null,
+            matchLocation: null,
+            matches: [],
+          });
+        }
+      }
+      if (!locationIsUnknown) {
+        locationRow = await fetchMatchLocationByName(locationParam);
+        if (!locationRow) {
+          return res.json({
+            date: dateRaw,
+            matchType: typeRow,
+            matchLocation: null,
+            matches: [],
+          });
+        }
+      }
+
+      const applyMetaFilters = (query) => {
+        let q = query;
+        q = typeIsUnknown ? q.is('match_type_id', null) : q.eq('match_type_id', typeRow?.id);
+        q = locationIsUnknown
+          ? q.is('match_location_id', null)
+          : q.eq('match_location_id', locationRow?.id);
+        return q;
+      };
+
+      const [scheduledRes, createdRes, watchRes] = await Promise.all([
+        applyMetaFilters(
+          supabase
+            .from('matches')
+            .select(
+              'match_id, note, match_type_id, match_location_id, status, winner_team, finished_at, scheduled_at, created_at',
+            )
+            .gte('scheduled_at', dayRange.start)
+            .lt('scheduled_at', dayRange.end),
+        ),
+        applyMetaFilters(
+          supabase
+            .from('matches')
+            .select(
+              'match_id, note, match_type_id, match_location_id, status, winner_team, finished_at, scheduled_at, created_at',
+            )
+            .is('scheduled_at', null)
+            .gte('created_at', dayRange.start)
+            .lt('created_at', dayRange.end),
+        ),
+        supabase
+          .from('latest_watch_event_per_match')
+          .select('match_id')
+          .gte('watch_timestamp', dayRange.start)
+          .lt('watch_timestamp', dayRange.end),
+      ]);
+
+      if (scheduledRes.error) {
+        console.error('Supabase matches select error (event scheduled):', scheduledRes.error);
+      }
+      if (createdRes.error) {
+        console.error('Supabase matches select error (event created):', createdRes.error);
+      }
+      if (watchRes.error) {
+        console.error('Supabase watch_events select error (event):', watchRes.error);
+      }
+
+      const candidateIds = new Set();
+      for (const row of scheduledRes.data || []) {
+        candidateIds.add(String(row.match_id));
+      }
+      for (const row of createdRes.data || []) {
+        candidateIds.add(String(row.match_id));
+      }
+      for (const row of watchRes.data || []) {
+        candidateIds.add(String(row.match_id));
+      }
+
+      if (!candidateIds.size) {
+        return res.json({
+          date: dateRaw,
+          matchType: typeRow,
+          matchLocation: locationRow,
+          matches: [],
+        });
+      }
+
+      const { data: matchesMetaRows, error: metaErr } = await supabase
+        .from('matches')
+        .select(
+          'match_id, note, match_type_id, match_location_id, status, winner_team, finished_at, scheduled_at, created_at',
+        )
+        .in('match_id', Array.from(candidateIds));
+
+      if (metaErr) {
+        console.error('Supabase matches select error (event meta):', metaErr);
+        return res.status(500).json({ error: 'Failed to load event matches' });
+      }
+
+      const filteredMetaRows = (matchesMetaRows || []).filter((row) => {
+        if (typeIsUnknown) {
+          if (row.match_type_id != null) return false;
+        } else if (row.match_type_id !== typeRow?.id) {
+          return false;
+        }
+        if (locationIsUnknown) {
+          if (row.match_location_id != null) return false;
+        } else if (row.match_location_id !== locationRow?.id) {
+          return false;
+        }
+        return true;
+      });
+
+      const matchIds = filteredMetaRows.map((row) => String(row.match_id));
+      if (!matchIds.length) {
+        return res.json({
+          date: dateRaw,
+          matchType: typeRow,
+          matchLocation: locationRow,
+          matches: [],
+        });
+      }
+
+      const [playersRes, snapshotsMap, snapshotsHistory] = await Promise.all([
+        supabase
+          .from('match_players')
+          .select('match_id, team, slot, player:players(id, name)')
+          .in('match_id', matchIds),
+        fetchLatestSnapshotsForMatches(matchIds),
+        fetchSnapshotsHistoryForMatches(matchIds),
+      ]);
+
+      if (playersRes.error) {
+        console.error('Supabase match_players select error (event):', playersRes.error);
+      }
+
+      const playersByMatch = new Map();
+      for (const p of playersRes.data || []) {
+        const mid = String(p.match_id);
+        if (!playersByMatch.has(mid)) playersByMatch.set(mid, []);
+        playersByMatch.get(mid).push(p);
+      }
+
+      const metaByMatch = new Map();
+      const typeIds = new Set();
+      const locationIds = new Set();
+      for (const row of filteredMetaRows || []) {
+        if (row.match_type_id) typeIds.add(row.match_type_id);
+        if (row.match_location_id) locationIds.add(row.match_location_id);
+        metaByMatch.set(String(row.match_id), {
+          note: row.note || null,
+          matchTypeId: row.match_type_id || null,
+          matchLocationId: row.match_location_id || null,
+          status: row.status || null,
+          winnerTeam: row.winner_team ?? null,
+          finishedAt: row.finished_at || null,
+          scheduledAt: row.scheduled_at || null,
+          createdAt: row.created_at || null,
+        });
+      }
+
+      const typeById =
+        typeIds.size && supabase ? await getCachedMatchTypes(Array.from(typeIds)) : new Map();
+      const locationById =
+        locationIds.size && supabase
+          ? await getCachedMatchLocations(Array.from(locationIds))
+          : new Map();
+
+      let list = matchIds.map((matchId) => {
+        const ps = playersByMatch.get(matchId) || [];
+        const t1Players = ps
+          .filter((p) => p.team === 1)
+          .sort((a, b) => a.slot - b.slot);
+        const t2Players = ps
+          .filter((p) => p.team === 2)
+          .sort((a, b) => a.slot - b.slot);
+        const t1 = t1Players.map((p) => p.player?.name);
+        const t2 = t2Players.map((p) => p.player?.name);
+        const playerIds = [
+          t1Players[0]?.player?.id || null,
+          t1Players[1]?.player?.id || null,
+          t2Players[0]?.player?.id || null,
+          t2Players[1]?.player?.id || null,
+        ];
+
+        const meta = metaByMatch.get(matchId) || {};
+        const typeRowMatch = meta.matchTypeId ? typeById.get(meta.matchTypeId) : null;
+        const locationRowMatch = meta.matchLocationId
+          ? locationById.get(meta.matchLocationId)
+          : null;
+
+        const snapshot = snapshotsMap.get(matchId);
+        const raw = snapshot?.raw || {};
+        const history = snapshotsHistory.get(matchId) || [];
+        const filteredHistory = (history || []).filter(
+          (snap) => !isStatusOnlyEvent(snap),
+        );
+        const unforcedErrors = computeUnforcedErrorsFromSnapshots(filteredHistory);
+        const ts =
+          snapshot?.watch_timestamp ||
+          snapshot?.received_at ||
+          meta.finishedAt ||
+          meta.scheduledAt ||
+          meta.createdAt ||
+          null;
+        const { score, setsString } = summaryFromRaw(raw);
+
+        return {
+          matchId,
+          team1Name: t1.length ? t1.join(' / ') : 'Team 1',
+          team2Name: t2.length ? t2.join(' / ') : 'Team 2',
+          playerIds,
+          note: meta.note || null,
+          matchType: typeRowMatch?.name || null,
+          matchTypeIconUrl: typeRowMatch?.iconUrl || null,
+          matchLocation: locationRowMatch?.name || null,
+          matchLocationLogoUrl: locationRowMatch?.logoUrl || null,
+          status: meta.status || null,
+          winnerTeam: meta.winnerTeam ?? null,
+          scheduledAt: meta.scheduledAt || null,
+          finishedAt: meta.finishedAt || null,
+          lastTimestamp: ts,
+          lastSnapshot: raw,
+          unforcedErrors,
+          score,
+          setsString,
+        };
+      });
+
+      list.sort((a, b) => {
+        const aTime = a.scheduledAt || a.lastTimestamp || '';
+        const bTime = b.scheduledAt || b.lastTimestamp || '';
+        const aVal = aTime ? new Date(aTime).getTime() : 0;
+        const bVal = bTime ? new Date(bTime).getTime() : 0;
+        if (aVal !== bVal) return bVal - aVal;
+        return String(b.matchId || '').localeCompare(String(a.matchId || ''));
+      });
+
+      return res.json({
+        date: dateRaw,
+        matchType: typeRow,
+        matchLocation: locationRow,
+        matches: list,
+      });
+    } catch (e) {
+      console.error('Supabase /api/event-matches exception:', e);
+      return res.status(500).json({ error: 'Unexpected error' });
+    }
+  });
 
     if (needsFallback.size) {
       const fallbackSnapshots = await fetchLatestSnapshotsForMatches(
@@ -3327,15 +3681,20 @@ app.get('/match/:id', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'match.html'));
 });
 
-// Match animation page
-app.get('/match/:id/animation', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'match-animation.html'));
-});
+  // Match animation page
+  app.get('/match/:id/animation', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'match-animation.html'));
+  });
 
-// Player profile page
-app.get('/player/:id', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'player.html'));
-});
+  // Event results page
+  app.get('/event', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'event.html'));
+  });
+
+  // Player profile page
+  app.get('/player/:id', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'player.html'));
+  });
 
 // Player rankings page
 app.get('/players', (req, res) => {

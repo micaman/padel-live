@@ -11,7 +11,6 @@ import {
 
 const matchesList = document.getElementById("matchesList");
 const loadMoreBtn = document.getElementById("loadMoreBtn");
-const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("error");
 
 let offset = 0;
@@ -95,6 +94,26 @@ function getGroupMeta(match) {
   };
 }
 
+function buildEventUrl(match) {
+  const dateKey = formatDateKeySafe(getScheduledDate(match));
+  const typeParam = match.matchType || "";
+  const locationParam = match.matchLocation || "";
+  const params = new URLSearchParams({
+    date: dateKey,
+    type: typeParam,
+    location: locationParam
+  });
+  return `/event?${params.toString()}`;
+}
+
+function buildWhatsappLink(eventUrl, meta) {
+  const origin = window.location.origin || "";
+  const fullUrl = `${origin}${eventUrl}`;
+  const label = `${meta.typeLabel} | ${meta.locationLabel}`;
+  const text = `Padel event results - ${label} (${meta.dateLabel}): ${fullUrl}`;
+  return `https://wa.me/?text=${encodeURIComponent(text)}`;
+}
+
 function buildImageTag(imageUrl) {
   const srcAttr = imageUrl ? ` src="${escapeHtml(imageUrl)}"` : "";
   return `<span class="match-tag match-tag--logo"><img${srcAttr} alt=""></span>`;
@@ -137,6 +156,8 @@ function createGroupSection(match, key) {
 
   const typeIcon = match.matchTypeIconUrl ? buildImageTag(match.matchTypeIconUrl) : "";
   const locationIcon = match.matchLocationLogoUrl ? buildImageTag(match.matchLocationLogoUrl) : "";
+  const eventUrl = buildEventUrl(match);
+  const shareUrl = buildWhatsappLink(eventUrl, meta);
 
   const header = document.createElement("div");
   header.className = "match-group-header";
@@ -145,8 +166,11 @@ function createGroupSection(match, key) {
         ${typeIcon}
         <span>${escapeHtml(meta.typeLabel)} | ${escapeHtml(meta.locationLabel)}</span>
         ${locationIcon}
+      </div><br>
+      <div class="match-group-actions">
+        <div class="match-group-date">${escapeHtml(meta.dateLabel)}</div>
+        <a class="match-group-link" href="${eventUrl}">Share</a>
       </div>
-      <div class="match-group-date">${escapeHtml(meta.dateLabel)}</div>
     `;
 
   const itemsWrap = document.createElement("div");
@@ -344,7 +368,6 @@ async function loadNext() {
     shownCount += batch.length;
     hasMore = data.hasMore;
 
-    statusEl.textContent = `Showing ${shownCount} matches`;
     loadMoreBtn.style.display = hasMore ? "inline-block" : "none";
   } catch (e) {
     console.error(e);

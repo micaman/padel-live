@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Padel Event Results</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/css/match.css">
+  <link rel="stylesheet" href="/css/event.css">
+</head>
+
+<body>
+  <div class="container">
+    <h1>Event Results</h1>
+    <div class="page-nav">
+      <a class="nav-link" href="/">&larr; Match list</a>
+    </div>
+
+    <div class="event-header">
+      <div class="event-title">
+        <span class="event-title-media">
+          <img id="eventTypeIcon" class="event-media" alt="">
+          <span id="eventTitle">Event</span>
+          <img id="eventLocationIcon" class="event-media" alt="">
+        </span>
+      </div>
+      <div class="event-subtitle" id="eventSubtitle">-</div>
+      <div class="event-time" id="eventTime">-</div>
+    </div>
+
+    <div id="error" class="error"></div>
+
+    <div id="eventMatches" class="event-matches"></div>
+  </div>
+
+  <script type="module" src="/js/event.js"></script>
+</body>
+</html>
