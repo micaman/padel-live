@@ -2432,7 +2432,7 @@ app.post('/api/match/:id/note', async (req, res) => {
       const { data: matchesMetaData, error: mErr } = await supabase
         .from('matches')
         .select(
-          'match_id, note, match_type_id, match_location_id, status, winner_team, finished_at, scheduled_at',
+          'match_id, note, match_type_id, match_location_id, status, winner_team, finished_at, scheduled_at, match_cost, youtube_url',
         )
         .in('match_id', allMatchIds);
 
@@ -2457,6 +2457,8 @@ app.post('/api/match/:id/note', async (req, res) => {
         winnerTeam: m.winner_team ?? null,
         finishedAt: m.finished_at || null,
         scheduledAt: m.scheduled_at || null,
+        matchCost: m.match_cost ?? null,
+        youtubeUrl: m.youtube_url || null,
       });
     }
 
@@ -2519,6 +2521,8 @@ app.post('/api/match/:id/note', async (req, res) => {
         status: meta.status || null,
         winnerTeam: meta.winnerTeam ?? null,
         scheduledAt: meta.scheduledAt || null,
+        matchCost: meta.matchCost ?? null,
+        youtubeUrl: meta.youtubeUrl || null,
       };
     });
 
@@ -2552,6 +2556,8 @@ app.post('/api/match/:id/note', async (req, res) => {
         status: meta.status || null,
         winnerTeam: meta.winnerTeam ?? null,
         scheduledAt: meta.scheduledAt || null,
+        matchCost: meta.matchCost ?? null,
+        youtubeUrl: meta.youtubeUrl || null,
         lastTimestamp: meta.finishedAt || meta.scheduledAt || row.created_at || null,
         lastSnapshot: {},
         score: '',

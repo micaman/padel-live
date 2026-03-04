@@ -134,6 +134,16 @@ function formatMatchIdLabel(matchId) {
   return `#${tail}`;
 }
 
+function formatCostLabel(costRaw) {
+  const cost = Number(costRaw);
+  if (!Number.isFinite(cost)) return "";
+  if (cost === 0) return "";
+  const amount = Number.isInteger(cost)
+    ? String(cost)
+    : String(cost.toFixed(2)).replace(/\.?0+$/, "");
+  return `${amount}€`;
+}
+
 function renderMetaTags(match) {
   const tags = [];
   const matchIdLabel = formatMatchIdLabel(match.matchId);
@@ -143,6 +153,15 @@ function renderMetaTags(match) {
     tags.push(buildTextTag("W", "match-tag--result match-tag--win"));
   } else if (match.winnerTeam === 1) {
     tags.push(buildTextTag("L", "match-tag--result match-tag--loss"));
+  }
+
+  const costLabel = formatCostLabel(match.matchCost);
+  const hasVideo = Boolean(String(match.youtubeUrl || "").trim());
+  if (costLabel) {
+    tags.push(buildTextTag(costLabel, "match-tag--cost"));
+  }
+  if (hasVideo) {
+    tags.push(buildTextTag("YT"));
   }
 
   return tags.length ? `<div class="match-tags">${tags.join("")}</div>` : "";
